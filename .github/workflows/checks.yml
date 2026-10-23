@@ -30,6 +30,7 @@ jobs:
           done
           curl -fsS http://127.0.0.1:41888/ready
           curl -fsS http://127.0.0.1:41888/
+          docker exec ow-stats-test python -m unittest discover -s tests -p test_frontend_release.py -v
           docker exec ow-stats-test tesseract --list-langs | grep -F chi_sim
           docker exec ow-stats-test tesseract --list-langs | grep -F eng
           docker exec ow-stats-test python -c "from unittest.mock import patch; from api_server.batch_rating.ocr_engine import warmup; patch('requests.get', side_effect=AssertionError('Unexpected model download')).start(); warmup()"

@@ -29,6 +29,7 @@ from .metrics import REGISTRY, render_metrics_text  # noqa: E402
 from .ratelimit import LIMITERS  # noqa: E402
 from .response_utils import error_response  # noqa: E402
 from .query_audit import record_successful_ids  # noqa: E402
+from .frontend import rating_page  # noqa: E402
 from .routers import (  # noqa: E402
     bind_router,
     hero_router,
@@ -340,12 +341,19 @@ async def on_shutdown():
 # 基础端点
 # ---------------------------------------------------------------------------
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+@app.get("/static/batch_rating.html", include_in_schema=False)
+async def static_rating_entry(request: Request):
+    return RedirectResponse("/" + ("?" + request.url.query if request.url.query else ""))
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/", include_in_schema=False)
 async def root():
-    return FileResponse(str(STATIC_DIR / "batch_rating.html"), media_type="text/html; charset=utf-8")
+    return rating_page()
 
 
 @app.get("/health", include_in_schema=False)

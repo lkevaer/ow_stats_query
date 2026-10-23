@@ -15,8 +15,7 @@ bindings.json
 **/*.sqlite3*
 *.log
 *.pid
-*.jpg
-*.png
+overstats/cache
 PROGRESS.md
 deployment-*
 *-check-task.txt
