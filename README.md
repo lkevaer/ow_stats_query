@@ -1,13 +1,15 @@
 # 守望先锋战绩查询 · 队友评分
 
-基于 [DustEater/ow_stats_query](https://github.com/DustEater/ow_stats_query) 修改，保留完整查询服务、Web 页面和 Taro 客户端源码。
+基于 [DustEater/ow_stats_query](https://github.com/DustEater/ow_stats_query) 修改。网站首页直接提供队友评分，保留原查询接口及 Taro 客户端源码。
 
-- 普通查询：资料、对局、英雄、段位历史等。
+- 首页只展示队友评分，原普通查询页面已移除；资料、对局、英雄、段位历史等接口继续可用。
 - **队友评分/上下等马查询**：上传截图或输入多个 BattleTag，分别查询近12场休闲或竞技，生成详细表格与可复制的简短文字。支持框选账号列表重试，有分歧的文字会标记并提供候选。
 - 逐场英雄头像、地图图标、竞技段位与图标、红绿胜负箭头、真实组队标记，以及MVP金边、CARRY浅金边、SVP淡紫边；展示最后一击占比、Fleta、KD、伤害、治疗、阵亡与加减分。
 - 阵亡结合双方整体数据判断；辅助Fleta达到40%较高加分，达到50%高权重加分且免除高阵亡惩罚。短于6.5分钟降权、长于15分钟小幅增权，双方最后一击接近时较明显增权。
-- 近12场至少10胜标记“手感火热”并提高胜率权重，至少9场KD≥7较高加分。分制已校准，原70分约对应80分；S90、A80、B70、C60分起。近12场至少7场Fleta严格大于65%为SMURF，并保留最高权重专项加分。
-- 页面保留原来的居中宽度与独立数据列，支持横向滚动；S/A/B/C/D分别使用淡金、淡紫、淡蓝、淡绿、灰色区分评分与等级。
+- 近12场至少10胜标记“手感火热”并提高胜率权重，至少9场KD≥7较高加分。100分为SSS；S90、A80、B70、C60分起。近12场至少7场Fleta严格大于65%为SMURF，并保留最高权重专项加分。
+- 右上角可绑定一个战网ID、解绑，开关控制每次查询是否自动加入本人；合并去重后最多10人。绑定与开关保存在当前浏览器的Cookie中一年，不按IP共享，不读取MAC地址；清除本站数据后需重新绑定。绑定仅设置查询目标，不验证账号所有权。
+- 单人保留评分、等级和逐场详情，不分上下等马，提示增加ID比较；至少两位有效评分玩家时显示相对分档。
+- 页面保留居中宽度与独立数据列；鼠标在超宽表格内滚轮横向滚动，移到两侧正常上下滚动。评级使用更清楚的金、紫、蓝、绿、灰色；S金色细线、SSS红色细线与SMURF红色徽标有克制动效，支持减少动态效果偏好。短局、长局、势均力敌与碾压使用淡色图标徽标。
 - 不需要 AI 密钥即可查询及评分。
 
 ## Windows 运行
@@ -21,7 +23,7 @@ python -m venv .venv
 
 双击 `configure_account.cmd`，按 [LOGIN.md](LOGIN.md) 填入自己的网易大神业务凭据，随后服务自动启动。已配置账号时双击 `start_local.cmd`，停止使用 `stop_local.cmd`。
 
-打开 [本机首页](http://127.0.0.1:41888/) 或 [队友评分](http://127.0.0.1:41888/batch-rating)。截图识别优先使用本地 RapidOCR PP-OCRv6，多次识别比对并对疑问行重试。首次使用会下载公开模型，图片始终在服务本地处理。Windows 系统 OCR 作为备用。
+打开 [本机首页](http://127.0.0.1:41888/)，直接进入队友评分。旧 `/batch-rating` 地址自动跳转到首页。截图识别优先使用本地 RapidOCR PP-OCRv6，多次识别比对并对疑问行重试。首次使用会下载公开模型，图片始终在服务本地处理。Windows 系统 OCR 作为备用。
 
 配置优先使用环境变量；没有 `api_server/config.yaml` 时会读取安全的 `config.yaml.example`，无需复制私有配置文件。
 
@@ -37,7 +39,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-入口同样为 `http://127.0.0.1:41888/batch-rating`。数据保存在 Docker 卷中。更新代码后再次运行上述启动命令；停止使用 `docker compose down`。
+入口同样为 `http://127.0.0.1:41888/`。数据保存在 Docker 卷中。更新代码后再次运行上述启动命令；停止使用 `docker compose down`。
 
 默认只绑定本机。需要外网访问时，使用 HTTPS 反向代理和访问控制；可通过 `OW_SERVER_API_KEY` 配置访问码，在评分页输入或在 API 请求携带 `X-API-Key`。账号令牌只写在本机或服务器的环境变量中。
 
@@ -56,6 +58,7 @@ python -m unittest discover -s tests -v
 node --check api_server/static/batch_rating.js
 node --test tests/test_ocr_ui.cjs
 node --test tests/test_rating_ui.cjs
+node --test tests/test_rating_account.cjs
 ```
 
 GitHub Actions 会检查评分与查询逻辑，并构建、启动 Docker 镜像。GitHub 仓库存放完整代码；运行查询服务需要 Python 或 Docker，GitHub Pages 无法运行此后端。

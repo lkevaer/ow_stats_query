@@ -4,13 +4,22 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>队友评分/上下等马查询 · 守望先锋</title>
 <link rel="stylesheet" href="/static/batch_rating.css">
+<script defer src="/static/rating_account.js"></script>
 <script defer src="/static/batch_rating.js"></script>
 <script defer src="/static/ocr_crop.js"></script>
 <script defer src="/static/batch_rating_ocr.js"></script>
 </head>
 <body><main>
-<a href="/">← 返回普通查询</a>
+<div class="page-top">
 <div class="eyebrow">TEAMMATE RATING · RECENT 12</div>
+<aside id="selfBinding" class="self-binding" aria-label="我的战网账号">
+<div class="binding-heading"><span>我的战网账号</span><small>仅当前浏览器</small></div>
+<form id="bindForm" class="binding-form"><label for="bindTag" class="visually-hidden">完整战网ID</label><input id="bindTag" type="text" autocomplete="off" spellcheck="false" maxlength="64" placeholder="昵称#12345" required><button type="submit">绑定</button></form>
+<div id="boundAccount" class="bound-account hidden"><strong id="boundTag"></strong><button id="unbind" type="button">解绑</button></div>
+<label class="join-toggle"><input id="autoJoin" type="checkbox" role="switch" disabled><span class="toggle-track" aria-hidden="true"></span><span>每次查询自动加入本人</span></label>
+<div id="bindingMessage" class="binding-message" role="status"></div>
+</aside>
+</div>
 <div class="hero-line"><div><h1>队友评分/上下等马查询</h1><div class="sub">截图识别多人账号，查看近12场休闲或竞技表现。</div></div><div class="formula"><strong>Fleta</strong> = 个人最后一击 ÷（团队最后一击 × 50%）<br><span class="muted">占比50% = Fleta100% · 指数可超过100%</span></div></div>
 <p id="ratingScope" class="notice rating-scope">本页面对于上下等马的评级仅限于账号本身匹配池的近12场游戏数据，不考虑段位高低对于对局水平含金量的影响。因此如果名单段位跨度过大可能会出现低段位的评级比高段位的高的情况，这种情况是正常的。所以最佳适用场景是在自己竞技模式匹配到了之后，通过屏蔽其余队友查看ID的方法，查询队内五人的评级。</p>
 <p class="note scoring-bias">评分偏重最后一击与 Fleta，因此 T、C 更容易获得高分。段位差距过大的名单，上下等马评级没有比较意义。</p>
@@ -19,7 +28,7 @@
 <div><h2>1 · 上传或粘贴截图</h2><label class="drop" id="drop">选择图片、拖到这里，或按 Ctrl+V 粘贴截图<input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/bmp"><small>增强中文识别 · 本地处理 · 最大 8 MB</small></label>
 <div id="cropEditor" class="hidden"><p class="note">可在图上拖动框选账号列表，排除按钮、聊天等无关文字。</p><div id="cropStage" aria-label="拖动框选账号列表"><img id="preview" alt="原始账号截图，可拖动框选" draggable="false"><div id="cropSelection" class="hidden"></div></div><div class="actions"><button id="recognizeCrop" disabled data-ready="false">识别框选区域</button><button id="recognizeFull">重新识别整张图</button></div><div id="cropNote" class="note">尚未框选，当前识别整张图。</div></div>
 <div class="note" id="ocrNote" role="status"></div><div id="ocrWarnings" class="note"></div><div id="ocrReview"></div></div>
-<div><h2>2 · 检查账号列表</h2><label for="tags">每行一个完整 BattleTag，也可以直接输入</label><textarea id="tags" placeholder="昵称#12345&#10;另一位玩家#67890" spellcheck="false"></textarea><div class="note">自动去重，最多32人。识别有误可直接修改。</div><div class="actions"><button id="leisure" class="primary">查询近12场休闲</button><button id="competitive" class="primary">查询近12场竞技</button></div></div>
+<div><h2>2 · 检查账号列表</h2><label for="tags">每行一个完整 BattleTag，也可以直接输入</label><textarea id="tags" placeholder="昵称#12345&#10;另一位玩家#67890" spellcheck="false"></textarea><div class="note">合并本人后自动去重，最多10人。识别有误可直接修改。</div><div class="actions"><button id="leisure" class="primary">查询近12场休闲</button><button id="competitive" class="primary">查询近12场竞技</button></div></div>
 </div>
 <div id="status" class="status" role="status">请选择截图或输入账号。</div><progress id="progress" value="0" max="100" class="hidden"></progress>
 <div id="accessSection" class="note hidden"><label for="accessKey">此服务需要访问码</label> <input id="accessKey" type="password" autocomplete="off" placeholder="输入管理员提供的访问码"></div>
@@ -28,11 +37,12 @@
 <div class="section-title"><h2 id="resultTitle">查询结果</h2><button id="download">导出数据</button></div>
 <p id="summary"></p>
 <p id="relativeNotice" class="notice">上下等马仅在本次查询名单内相对区分；相对评分不代表绝对水平。</p>
-<div class="scroll"><table><thead><tr><th>排名</th><th>玩家</th><th>相对分档</th><th>综合分 / 等级</th><th>样本 / 完整度</th><th>主要位置</th><th id="rankHeader" class="hidden">最近记录段位</th><th>胜率 / 状态</th><th>KD / 高KD场次</th><th>最后一击占比</th><th>综合 Fleta</th><th>伤害/10分</th><th>阵亡/10分</th><th>碾压降权</th></tr></thead><tbody id="rankings"></tbody></table></div>
-<div class="summary-box"><div class="section-title"><h2>我方上下等马</h2><button id="copySummary">复制简短文本</button></div><p class="notice summary-notice">仅在本次名单内相对比较；名单段位差距过大时，上下等马评级没有比较意义。</p><label for="horseSummary" class="note">括号内：近12场评分 / Fleta；样本不足时标注实际场数。</label><textarea id="horseSummary" readonly rows="3"></textarea></div>
+<div class="scroll" tabindex="0" aria-label="队友评分汇总表"><table><thead><tr><th id="comparisonRankHeader">排名</th><th>玩家</th><th id="tierHeader">相对分档</th><th>综合分 / 等级</th><th>样本 / 完整度</th><th>主要位置</th><th id="rankHeader" class="hidden">最近记录段位</th><th>胜率 / 状态</th><th>KD / 高KD场次</th><th>最后一击占比</th><th>综合 Fleta</th><th>伤害/10分</th><th>阵亡/10分</th><th>碾压降权</th></tr></thead><tbody id="rankings"></tbody></table></div>
+<p id="comparisonPrompt" class="notice hidden">请输入更多ID以比较（至少两位有有效评分的玩家）。</p>
+<div id="horseSummaryBox" class="summary-box"><div class="section-title"><h2>我方上下等马</h2><button id="copySummary">复制简短文本</button></div><p class="notice summary-notice">仅在本次名单内相对比较；名单段位差距过大时，上下等马评级没有比较意义。</p><label for="horseSummary" class="note">括号内：近12场评分 / Fleta；样本不足时标注实际场数。</label><textarea id="horseSummary" readonly rows="3"></textarea></div>
 <div class="key note"><span>展开玩家查看逐场详情</span><span class="delta neg1">轻扣</span><span class="delta neg2">较重扣分</span><span class="delta neg3">严重扣分</span><span class="delta pos1">小幅加分</span><span class="delta pos2">明显加分</span><span class="delta pos3">高权重加分</span><span>数据下方±数字为该项相对基准的分数贡献，悬停查看队友参考值。</span></div>
 <div class="key note"><span class="award mvp">MVP</span><span>当局十人评分最高 · 金边</span><span class="award carry">CARRY</span><span>Fleta≥80% · 浅金边</span><span class="award svp">SVP</span><span>败方Fleta&gt;80% · 淡紫边</span><span>MVP优先金色，可同时保留多个标志；并列最高均标记MVP，十人数据不全时不判定。组队人数只按对局记录显示。</span></div>
-<div class="key note grade-key"><span class="rating-score grade-s">S · 90+</span><span class="rating-score grade-a">A · 80+</span><span class="rating-score grade-b">B · 70+</span><span class="rating-score grade-c">C · 60+</span><span class="rating-score grade-d">D · 60以下</span><span>已调整分制，原70分水平约对应80分；SMURF为额外表现等级。</span></div>
+<div class="key note grade-key"><span class="rating-score grade-sss">SSS · 100</span><span class="rating-score grade-s">S · 90+</span><span class="rating-score grade-a">A · 80+</span><span class="rating-score grade-b">B · 70+</span><span class="rating-score grade-c">C · 60+</span><span class="rating-score grade-d">D · 60以下</span><span>SMURF为额外表现等级。</span></div>
 <div id="details"></div>
 </section>
 <section class="panel"><h2>评分参考</h2><div class="legend"><div><strong>坦克 T</strong><br><small>兼顾伤害、最后一击与生存。最后一击占比≥30%额外加分。</small></div><div><strong>输出 C</strong><br><small>侧重伤害与最后一击。最后一击占比≥40%额外加分。</small></div><div><strong>辅助 N</strong><br><small>兼顾生存、治疗与伤害。Fleta≥40%较高权重加分；≥50%高权重加分，且不触发高阵亡惩罚。</small></div></div>
@@ -53,8 +63,8 @@
 <li>伤害、治疗等数据按实际时长换算每10分钟比较，优先参考同位置队友。逐场按原来的独立列展示英雄、段位、地图、胜负和各项数据，支持横向滚动。权重合计可能超过实际场数，不代表增加了对局。</li>
 <li>综合分按对局权重汇总后，参考持续高Fleta、胜率和KD。综合Fleta使用全部有效对局最后一击总数汇总，不直接平均各场百分比。Fleta仅表示个人最后一击÷（团队最后一击×50%），可以超过100%；零分母显示未知。</li>
 <li>只查询所选模式最近12场，休闲与竞技分开，不混入角斗领域。关键数据缺失不计分；不足12场显示实际场数并标记暂定。完整度表示样本及字段覆盖情况，不是评级正确率。</li>
-<li>分数已重新规划，原70分水平约对应80分，保持0至100范围。S从90分、A从80分、B从70分、C从60分起，其余D；SMURF是额外表现等级。以上均为自定义评分，并非网易官方分数或段位。</li>
-<li>上下等马只在本次名单内相对排序，同分同档，单人显示中等马，无数据不评级。评分不按段位修正对局含金量，名单段位差距过大时没有比较意义。</li>
+<li>评分范围0至100。100分为SSS，S从90分、A从80分、B从70分、C从60分起，其余D；SMURF是额外表现等级。以上均为自定义评分，并非网易官方分数或段位。</li>
+<li>上下等马只在本次名单内相对排序，同分同档。只有一位有效评分玩家时不分上下等马，请输入更多ID以比较；无数据不评级。评分不按段位修正对局含金量，名单段位差距过大时没有比较意义。</li>
 </ul></details>
 </section>
 </main></body></html>

@@ -13,8 +13,9 @@ jobs:
       - run: python -m pip install -r requirements_for_api.txt
       - run: python -m unittest discover -s tests -v
       - run: node --check api_server/static/batch_rating.js
+      - run: node --check api_server/static/rating_account.js
       - run: node --check api_server/static/batch_rating_ocr.js
-      - run: node --test tests/test_ocr_ui.cjs tests/test_rating_ui.cjs
+      - run: node --test tests/test_ocr_ui.cjs tests/test_rating_ui.cjs tests/test_rating_account.cjs
   container:
     runs-on: ubuntu-latest
     steps:
@@ -28,7 +29,7 @@ jobs:
             sleep 2
           done
           curl -fsS http://127.0.0.1:41888/ready
-          curl -fsS http://127.0.0.1:41888/batch-rating
+          curl -fsS http://127.0.0.1:41888/
           docker exec ow-stats-test tesseract --list-langs | grep -F chi_sim
           docker exec ow-stats-test tesseract --list-langs | grep -F eng
           docker exec ow-stats-test python -c "from unittest.mock import patch; from api_server.batch_rating.ocr_engine import warmup; patch('requests.get', side_effect=AssertionError('Unexpected model download')).start(); warmup()"

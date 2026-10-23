@@ -5,7 +5,7 @@ from collections import defaultdict
 import re
 import unicodedata
 
-MAX_PLAYERS = 32
+MAX_PLAYERS = 10
 _DIGITS = str.maketrans({"S":"5", "s":"5", "O":"0", "o":"0", "I":"1", "l":"1", "L":"1", "B":"8", "Z":"2"})
 _SUFFIX = r"[0-9SOoIlsLBZ]{3,12}"
 _TAG = re.compile(r"([^#\s,，;；|]{1,32})#+(" + _SUFFIX + r")(?![0-9A-Za-z])")
@@ -13,13 +13,14 @@ _UI_LABELS = {"屏蔽列表", "好友列表", "玩家列表", "最近玩家", "�
 
 
 def normalize_tags(tags: list[str]) -> list[str]:
-    result = []
+    result, seen = [], set()
     for raw in tags:
         tag = unicodedata.normalize("NFKC", str(raw)).strip()
         if not re.fullmatch(r"[^#\s]{1,32}#[0-9]{3,12}", tag):
             raise ValueError(f"BattleTag 格式无效：{tag[:48]}，应为 昵称#数字")
-        if tag not in result:
+        if tag.casefold() not in seen:
             result.append(tag)
+            seen.add(tag.casefold())
     if not result:
         raise ValueError("没有识别到完整 BattleTag，请框选账号列表重试，或输入 昵称#数字")
     if len(result) > MAX_PLAYERS:

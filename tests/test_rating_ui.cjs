@@ -4,18 +4,23 @@ const path=require('node:path');
 const test=require('node:test');
 const assert=require('node:assert/strict');
 
-function ui(){
+function ui(savedCookie=''){
   const elements=new Map();
+  const listeners=new Map(),storage=new Map(),requests=[];
   const element=id=>{
     if(!elements.has(id)){
       const classes=new Set(['hidden']);
-      elements.set(id,{value:'',dataset:{},classList:{toggle:(name,force)=>force?classes.add(name):classes.delete(name),remove:name=>classes.delete(name),contains:name=>classes.has(name)}});
+      elements.set(id,{value:'',dataset:{},style:{},classList:{toggle:(name,force)=>force?classes.add(name):classes.delete(name),remove:name=>classes.delete(name),contains:name=>classes.has(name)}});
     }
     return elements.get(id);
   };
-  const context=vm.createContext({document:{getElementById:element},localStorage:{getItem:()=>null},fetch:async()=>({json:async()=>({api_key_required:false})}),setTimeout:()=>{}});
+  const document={getElementById:element,addEventListener:(name,callback)=>listeners.set(name,callback)};
+  let cookie=savedCookie;
+  Object.defineProperty(document,'cookie',{get:()=>cookie,set:value=>{cookie=value.includes('Max-Age=0')?'':value.split(';')[0];}});
+  const context=vm.createContext({document,location:{protocol:'https:',search:''},URLSearchParams,localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},fetch:async(url,options)=>{requests.push({url,options});return{ok:true,json:async()=>url==='/health'?{api_key_required:false}:{success:true,data:options?.method==='POST'?{task_id:'test'}:{status:'done',progress:100,stage:'完成',result:{mode:'competitive',mode_label:'竞技',players:[player],summary:{requested_players:1,complete_players:1,rated_matches:12}}}}};},setTimeout:()=>{}});
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../api_server/static/rating_account.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../api_server/static/batch_rating.js'),'utf8'),context);
-  return {context,element};
+  return {context,element,listeners,requests,document};
 }
 const rank={known:true,label:'黄金3',icon:'https://example.com/gold.png',role_label:'输出'};
 const match={begin_ts:1792227400000,seconds:600,hero:'测试',role:'dps',role_label:'输出',map_name:'测试地图',metrics:{},stats:{},adjustments:[],warnings:[],rank,score:65,grade:'B',outcome_label:'胜',sample_weight:1,duration_weight:1};
@@ -105,9 +110,83 @@ test('classic match table restores independent columns without losing current fo
   const {context}=ui();
   const html=context.matchRow({...match,stats:{kill:20,assist:8,death:3,heroDamage:6000,cure:2000,finalHit:10},kd:20/3,team_final_blows:30,opponent_final_blows:31,balanced_final_blows:true,long_match:true},true);
   assert.equal((html.match(/<td(?:\s[^>]*)?>/g)||[]).length,16);
-  for(const text of ['长局增权','接近']) assert.ok(html.includes(text),text);
+  for(const text of ['长局增权','势均力敌']) assert.ok(html.includes(text),text);
   const detailed=context.playerDetails(player,true);
   assert.equal((detailed.match(/<th>/g)||[]).length,16);
   for(const text of ['本场记录段位','最后一击占比','Fleta','击杀','助攻','阵亡','KD','伤害/10分','治疗/10分']) assert.ok(detailed.includes(text),text);
   assert.doesNotMatch(detailed,/colgroup/);
+});
+
+test('a single player keeps scores and details without a horse tier or comparison rank',()=>{
+  const {context,element}=ui();
+  const report={mode:'competitive',mode_label:'竞技',players:[player],summary:{requested_players:1,complete_players:1,rated_matches:12}};
+  context.render(report);
+  assert.doesNotMatch(element('rankings').innerHTML,/中等马/);
+  assert.match(element('details').innerHTML,/Example#1234/);
+  assert.equal(element('tierHeader').classList.contains('hidden'),true);
+  assert.equal(element('comparisonRankHeader').classList.contains('hidden'),true);
+  assert.equal(element('horseSummaryBox').classList.contains('hidden'),true);
+  assert.equal(element('comparisonPrompt').classList.contains('hidden'),false);
+  context.render({...report,players:[{...player,tier:'上等马'},{...player,battletag:'Second#1234',tier:'下等马'}]});
+  assert.match(element('rankings').innerHTML,/上等马/);
+  assert.equal(element('horseSummaryBox').classList.contains('hidden'),false);
+  assert.equal(element('comparisonPrompt').classList.contains('hidden'),true);
+});
+
+test('SSS is reserved for 100 and coexists with the separate SMURF award',()=>{
+  const {context}=ui();
+  assert.match(context.scoreMarkup({score:100,grade:'S',is_smurf:true}),/grade-sss.*100\.00.*SSS.*SMURF/);
+  assert.match(context.scoreMarkup({score:99.99,grade:'S'}),/grade-s"/);
+  assert.doesNotMatch(context.scoreMarkup({score:null,grade:null}),/grade-sss/);
+});
+
+test('binding, toggle and unbinding persist through the cookie and affect actual query payloads',async()=>{
+  const view=ui();
+  view.element('bindTag').value='本人＃12345';
+  view.element('bindForm').onsubmit({preventDefault(){}});
+  assert.equal(view.element('boundTag').textContent,'本人#12345');
+  assert.equal(view.element('autoJoin').checked,true);
+  const reopened=ui(view.document.cookie);
+  assert.equal(reopened.element('boundTag').textContent,'本人#12345');
+  reopened.element('tags').value='队友#12345 本人#12345';
+  await reopened.context.query('competitive');
+  const request=reopened.requests.find(r=>r.options?.method==='POST');
+  assert.deepEqual(JSON.parse(request.options.body).battletags,['队友#12345','本人#12345']);
+  reopened.element('autoJoin').checked=false;
+  reopened.element('autoJoin').onchange();
+  const disabled=ui(reopened.document.cookie);
+  assert.equal(disabled.element('autoJoin').checked,false);
+  disabled.element('tags').value='队友#12345';
+  await disabled.context.query('competitive');
+  assert.deepEqual(JSON.parse(disabled.requests.find(r=>r.options?.method==='POST').options.body).battletags,['队友#12345']);
+  disabled.element('unbind').onclick();
+  assert.equal(ui(disabled.document.cookie).element('boundTag').textContent,'');
+  assert.equal(disabled.element('autoJoin').disabled,true);
+  assert.equal(ui().element('boundTag').textContent,'');
+});
+
+test('adding self beyond ten refuses before making a query instead of dropping players',async()=>{
+  const {context,element,requests}=ui();
+  element('bindTag').value='本人#1234';element('bindForm').onsubmit({preventDefault(){}});
+  element('tags').value=Array.from({length:10},(_,i)=>'队友'+i+'#1234').join('\n');
+  await context.query('competitive');
+  assert.equal(requests.some(r=>r.options?.method==='POST'),false);
+  assert.match(element('status').textContent,/最多10人/);
+});
+
+test('wheel is horizontal over an overflowing table, including at its ends',()=>{
+  const {listeners}=ui();
+  const table={scrollWidth:1000,clientWidth:500,scrollLeft:0};let prevented=false;
+  listeners.get('wheel')({target:{closest:()=>table},deltaY:80,deltaX:0,deltaMode:0,preventDefault(){prevented=true;}});
+  assert.equal(table.scrollLeft,80);assert.equal(prevented,true);
+  table.scrollLeft=500;prevented=false;
+  listeners.get('wheel')({target:{closest:()=>table},deltaY:1,deltaX:0,deltaMode:1,preventDefault(){prevented=true;}});
+  assert.equal(prevented,true);
+});
+
+test('wheel remains native on page margins, small tables and browser zoom',()=>{
+  const {listeners}=ui();
+  for(const [table,ctrlKey] of [[null,false],[{scrollWidth:400,clientWidth:500},false],[{scrollWidth:1000,clientWidth:500},true]]){
+    listeners.get('wheel')({target:{closest:()=>table},ctrlKey,deltaY:80,deltaX:0,deltaMode:0,preventDefault(){assert.fail('Native scrolling/zoom must remain available');}});
+  }
 });

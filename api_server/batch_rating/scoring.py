@@ -6,7 +6,7 @@ import statistics
 from .rank import match_rank
 from .context import death_context, kd_stats, match_weights, numeric, party_info, support_survival, survival_points
 
-VERSION = "team-relative-2026s5-v6"
+VERSION = "team-relative-2026s5-v7"
 ROLE_LABELS = {"tank": "坦克", "dps": "输出", "support": "辅助"}
 WEIGHTS = {
     "tank": {"damage": .30, "final_blows": .27, "survival": .23, "eliminations": .10, "final_blow_share": .08, "mitigation": .02},
@@ -26,7 +26,7 @@ def role_of(player: dict, heroes: dict) -> str | None:
 
 
 def grade(score: float) -> str:
-    for cutoff, label in [(90, "S"), (80, "A"), (70, "B"), (60, "C")]:
+    for cutoff, label in [(100, "SSS"), (90, "S"), (80, "A"), (70, "B"), (60, "C")]:
         if score >= cutoff:
             return label
     return "D"
@@ -356,10 +356,14 @@ def aggregate_player(battletag: str, matches: list[dict], *, fetched: int, error
 def rank_players(players: list[dict]) -> list[dict]:
     rated = sorted((p for p in players if p["score"] is not None), key=lambda p: (-p["score"], p["battletag"]))
     n, outer = len(rated), max(1, len(rated) // 3)
+    if n < 2:
+        for player in rated:
+            player.update(tier=None, rank=None)
+        return rated + [p for p in players if p["score"] is None]
     all_tied = n > 0 and rated[0]["score"] == rated[-1]["score"]
     previous_score, previous_tier, previous_rank = None, None, None
     for index, player in enumerate(rated):
-        tier = "中等马" if n == 1 or all_tied else "上等马" if index < outer else "下等马" if index >= n - outer else "中等马"
+        tier = "中等马" if all_tied else "上等马" if index < outer else "下等马" if index >= n - outer else "中等马"
         rank = index + 1
         if previous_score is not None and player["score"] == previous_score:
             tier, rank = previous_tier, previous_rank
@@ -369,6 +373,8 @@ def rank_players(players: list[dict]) -> list[dict]:
 
 
 def grouped_summary(players: list[dict]) -> str:
+    if sum(p.get("score") is not None for p in players) < 2:
+        return "请输入更多ID以比较（至少两位有有效评分的玩家）。"
     lines = []
     for tier in ["上等马", "中等马", "下等马"]:
         members = []
@@ -406,7 +412,7 @@ def scoring_rules() -> dict:
             "组队标记来自当局组队成员记录；缺失或异常时显示未知，不推测组队人数。",
             "小于6.5分钟的对局适当降权，越短权重越低；超过15分钟的对局小幅增权，有上限。双方最后一击总数几乎持平且数量充足时较明显增权；数据缺失或双方为零时不推测。碾压局继续降权，多个因素共同影响最终对局权重。",
             "综合Fleta按最后一击总数汇总；综合分按对局权重汇总再参考持续高Fleta、胜率和KD。关键数据缺失不计分。",
-            "分数重新校准，原70分水平约对应80分，保持0至100范围与基础表现顺序；S从90分、A从80分、B从70分、C从60分起，其余D。SMURF仍为额外表现等级；上中下等马仅是本次名单内的相对排序，同分同档。",
+            "评分范围0至100；100分为SSS，S从90分、A从80分、B从70分、C从60分起，其余D。SMURF为额外表现等级；上中下等马仅是本次名单内的相对排序，同分同档。只有一位有效评分玩家时不分上下等马，提示输入更多ID以比较。",
         ],
         "relative_notice": RELATIVE_NOTICE,
         "disclaimer": "自定义队内表现评分，不是网易官方分数，不代表段位；同分同档，无数据不评级",

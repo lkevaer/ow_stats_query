@@ -17,5 +17,5 @@ nohup .venv/bin/python -m uvicorn api_server.main:app \
   --host "$host" --port "$port" --workers 1 --loop asyncio \
   "${env_args[@]}" > api_server.log 2>&1 &
 echo "$!" > api_server.pid
-echo "Started: http://$host:$port/batch-rating"
+echo "Started: http://$host:$port/"
 echo "Check api_server.log for readiness."

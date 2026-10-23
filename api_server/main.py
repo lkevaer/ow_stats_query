@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 # 让 overstats 能被 import
@@ -344,15 +344,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/", include_in_schema=False)
 async def root():
-    index_html = STATIC_DIR / "index.html"
-    if index_html.exists():
-        return FileResponse(str(index_html), media_type="text/html; charset=utf-8")
-    return {
-        "name": "守望先锋数据查询 Web API",
-        "docs": "/docs",
-        "api_prefix": "/api",
-        "version": "2.0.0",
-    }
+    return FileResponse(str(STATIC_DIR / "batch_rating.html"), media_type="text/html; charset=utf-8")
 
 
 @app.get("/health", include_in_schema=False)
@@ -447,7 +439,8 @@ app.include_router(batch_rating_router)
 
 
 @app.get("/batch-rating", include_in_schema=False)
-async def batch_rating_page():
-    return FileResponse(str(STATIC_DIR / "batch_rating.html"), media_type="text/html; charset=utf-8")
+async def batch_rating_page(request: Request):
+    target = "/" + ("?" + request.url.query if request.url.query else "")
+    return RedirectResponse(target, status_code=307)
 
 __all__ = ["app"]
