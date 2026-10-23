@@ -1,0 +1,197 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  background: $color-bg-page;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: $spacing-lg $page-padding;
+  background: linear-gradient(135deg, rgba($color-primary, 0.15), transparent);
+
+  .title {
+    display: flex;
+    align-items: center;
+    gap: $spacing-sm;
+    font-size: $font-size-xl;
+    font-weight: $font-weight-bold;
+    color: $color-primary-light;
+
+    .dot {
+      width: 14rpx;
+      height: 14rpx;
+      border-radius: 50%;
+      background: $color-primary;
+      box-shadow: 0 0 16rpx $color-primary;
+    }
+  }
+}
+
+.searchSection {
+  padding: 0 $page-padding $spacing-lg;
+}
+
+.bindingInfo {
+  padding: 0 $page-padding $spacing-md;
+
+  .content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: $spacing-md;
+    background: $color-bg-card;
+    border-radius: $radius-md;
+    border: 1px solid $color-border;
+
+    .left {
+      display: flex;
+      align-items: center;
+      gap: $spacing-md;
+
+      .avatar {
+        width: 80rpx;
+        height: 80rpx;
+        border-radius: $radius-round;
+        background: $color-bg-input;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 40rpx;
+      }
+
+      .info {
+        display: flex;
+        flex-direction: column;
+        gap: 4rpx;
+
+        .name {
+          font-size: $font-size-md;
+          font-weight: $font-weight-medium;
+          color: $color-text-primary;
+        }
+
+        .hint {
+          font-size: $font-size-xs;
+          color: $color-text-tertiary;
+        }
+      }
+    }
+
+    .action {
+      font-size: $font-size-sm;
+      color: $color-primary;
+    }
+  }
+}
+
+.quickActions {
+  padding: 0 $page-padding;
+  margin-bottom: $spacing-lg;
+
+  .title {
+    font-size: $font-size-lg;
+    font-weight: $font-weight-semibold;
+    color: $color-text-primary;
+    margin-bottom: $spacing-md;
+    padding-left: $spacing-sm;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: $spacing-sm;
+  }
+
+  .item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: $spacing-md $spacing-sm;
+    background: $color-bg-card;
+    border-radius: $radius-md;
+    border: 1px solid $color-border;
+    transition: all $transition-fast;
+
+    &:active {
+      background: $color-bg-card-hover;
+      transform: scale(0.98);
+    }
+
+    .icon {
+      font-size: 48rpx;
+      margin-bottom: $spacing-xs;
+    }
+
+    .label {
+      font-size: $font-size-xs;
+      color: $color-text-secondary;
+      text-align: center;
+    }
+  }
+}
+
+.resultSection {
+  padding: 0 $page-padding;
+}
+
+.card {
+  background: $color-bg-card;
+  border-radius: $radius-md;
+  border: 1px solid $color-border;
+  overflow: hidden;
+  margin-bottom: $spacing-md;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: $spacing-md;
+  border-bottom: 1px solid $color-border;
+
+  .title {
+    font-size: $font-size-md;
+    font-weight: $font-weight-medium;
+    color: $color-text-primary;
+  }
+
+  .badge {
+    font-size: $font-size-xs;
+  }
+}
+
+.cardBody {
+  padding: $spacing-md;
+}
+
+.textResult {
+  background: $color-bg-input;
+  padding: $spacing-md;
+  border-radius: $radius-sm;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+  white-space: pre-wrap;
+  line-height: $line-height-loose;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-xl * 2;
+  gap: $spacing-md;
+
+  .icon {
+    font-size: 80rpx;
+    opacity: 0.5;
+  }
+
+  .text {
+    font-size: $font-size-sm;
+    color: $color-text-tertiary;
+  }
+}

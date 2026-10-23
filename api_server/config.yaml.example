@@ -1,0 +1,84 @@
+# ============================================================
+# OW API Server 配置模板
+# 使用方式：
+#   1. 复制为 config.yaml（注意：config.yaml 已在 .gitignore 中，
+#      不要提交它到代码仓库！）
+#   2. 敏感字段（dashen_accounts.token、analysis.api_key、
+#      server.api_key）建议通过环境变量注入，不必写在 YAML 里。
+# ============================================================
+
+# ---------- 网易大神账号 ----------
+# 至少需要 1 个可用账号才能使用玩家查询功能（战绩 / 段位 / 资料 等）。
+# 强烈建议：role_id 和 token 通过环境变量 OW_DASHEN_ROLE_ID /
+# OW_DASHEN_TOKEN 注入，它们会自动覆盖下面第 1 个账号的对应字段。
+dashen_accounts:
+  - name: "primary"
+    role_id: 0                  # 替换为你的 role_id，或留 0 改用环境变量注入
+    token: ""                   # 替换为你的 token，或留空改用环境变量注入
+    enabled: true
+
+dashen_global:
+  dashen_dts: 2026              # 大数据年度标识，一般不动
+  dashen_server: 1              # 服务器编号，国服保持 1
+  max_concurrent_requests: 2    # 同时向大神发起的最大请求数
+  account_failure_cooldown_seconds: 60   # 账号失败冷却秒数
+
+# ---------- 网络 / 代理 ----------
+network:
+  netease_proxy: ""             # 访问网易大神接口时使用的 HTTP 代理，留空为直连
+  patch_notes_use_international_proxy: false
+  patch_notes_international_proxy: ""
+  http_timeout_seconds: 60
+
+# ---------- AI 分析（可选） ----------
+# 用于 /api/player/* 的 AI 战绩点评，以及外服补丁翻译。
+# 建议通过 OW_LLM_API_KEY / OW_LLM_BASE_URL / OW_LLM_MODEL 注入。
+analysis:
+  enable_ai_match_replies: true
+  enable_patch_translation: true
+  llm_timeout_seconds: 60
+  provider: "openai"
+  api_key: ""                   # 敏感，建议用 OW_LLM_API_KEY 环境变量
+  base_url: "https://api.openai.com/v1"
+  model: "gpt-4o-mini"
+  custom_persona_prompt: ""
+
+# ---------- 输出偏好 ----------
+output:
+  prefer_image_for_profile: true
+  prefer_image_for_match: true
+  prefer_image_for_match_detail: true
+  prefer_image_for_summary: true
+  prefer_image_for_rank_history: true
+  prefer_image_for_strength: true
+  prefer_image_for_pick_rate: true
+  prefer_image_for_shop: true
+  prefer_image_for_patch_notes: true
+
+# ---------- 功能开关 ----------
+features:
+  enable_profile: true
+  enable_match: true
+  enable_match_detail: true
+  enable_rank_history: true
+  enable_quick_strength: true
+  enable_competitive_strength: true
+  enable_summary: true
+  enable_pick_rate: true
+  enable_shop: true
+  enable_patch_notes: true
+  enable_identity_search: true
+
+# ---------- 用户绑定文件 ----------
+# 玩家 user_token -> 账号 的绑定信息，运行时写入。
+# 文件里会包含 battletag / customer_token / bnet_id，不要提交它。
+bindings_file: "bindings.json"
+
+# ---------- 服务监听 ----------
+server:
+  host: "127.0.0.1"             # 公网暴露时建议保持 127.0.0.1，通过 Nginx 反代
+  port: 8080
+  # 给 /api/* 和 /docs/openapi.json 加一道 X-API-Key 访问控制。
+  # 留空或不写 = 不启用（仅用于本机/内网安全部署）。
+  # 也可以通过环境变量 OW_SERVER_API_KEY 注入。
+  api_key: ""

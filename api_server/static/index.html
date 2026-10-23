@@ -1,0 +1,1571 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>守望先锋数据查询</title>
+  <style>
+    :root {
+      --bg: #0f1420;
+      --panel: #1a2236;
+      --panel-2: #232c44;
+      --accent: #f9a03f;
+      --accent-2: #ffd369;
+      --text: #e8ecf7;
+      --muted: #8f98b2;
+      --danger: #ff5b5b;
+      --ok: #54d39a;
+      --border: #2c3551;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      min-height: 100vh;
+    }
+
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px 16px 80px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px 20px;
+      background: linear-gradient(135deg, #2a3350, #1a2236);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      margin-bottom: 20px;
+    }
+
+    .title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .title .dot {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 16px var(--accent);
+    }
+
+    .bind-box {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .bind-box input {
+      width: 220px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+    }
+    .bind-box input:focus { border-color: var(--accent); }
+
+    button.btn {
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 13px;
+      transition: all .15s ease;
+    }
+    button.btn:hover { border-color: var(--accent); color: var(--accent-2); }
+    button.btn.primary {
+      background: linear-gradient(135deg, var(--accent), #d97627);
+      color: #121212;
+      border-color: transparent;
+      font-weight: 600;
+    }
+    button.btn.primary:hover { filter: brightness(1.1); color: #121212; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+
+    .nav {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .nav .item {
+      padding: 14px 10px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      cursor: pointer;
+      text-align: center;
+      font-size: 14px;
+      transition: all .15s ease;
+    }
+    .nav .item .ico { font-size: 20px; display: block; margin-bottom: 4px; }
+    .nav .item:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .nav .item.active {
+      background: linear-gradient(135deg, #3a2b1a, #2a1a10);
+      border-color: var(--accent);
+      color: var(--accent-2);
+      box-shadow: 0 6px 18px -8px var(--accent);
+    }
+    .nav .item.disabled {
+      background: #1d2438;
+      color: #6a7590;
+      border-color: #2c3551;
+      cursor: not-allowed;
+      user-select: none;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+    }
+    .nav .item.disabled:hover {
+      background: #212a42;
+      border-color: #343e5f;
+      transform: none;
+      color: #7d87a8;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+    }
+    .panel h2 {
+      margin: 0 0 14px;
+      font-size: 17px;
+      color: var(--accent-2);
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+    }
+    .form-grid label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .form-grid input, .form-grid select {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+    }
+    .form-grid input:focus, .form-grid select:focus { border-color: var(--accent); }
+
+    .actions {
+      margin-top: 16px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .actions .btn.primary { min-width: 120px; }
+    .btn .spinner {
+      display: inline-block;
+      width: 12px; height: 12px;
+      border: 2px solid rgba(0,0,0,0.25);
+      border-top-color: #121212;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+
+    .progress-wrap {
+      display: none;
+      flex: 1 1 100%;
+      margin-top: 10px;
+    }
+    .progress-wrap.active { display: block; }
+    .progress-bar {
+      position: relative;
+      width: 100%;
+      height: 14px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      position: absolute;
+      top: 0; left: 0; bottom: 0;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      transition: width 0.35s ease;
+    }
+    .progress-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+    .progress-stage { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%; }
+
+    .status {
+      margin-top: 14px;
+      font-size: 13px;
+      color: var(--muted);
+      min-height: 20px;
+    }
+    .status.ok { color: var(--ok); }
+    .status.err { color: var(--danger); }
+
+    .result {
+      margin-top: 22px;
+    }
+    .result .item {
+      margin-bottom: 18px;
+    }
+    .result img {
+      max-width: 100%;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      display: block;
+    }
+    .result .text {
+      background: var(--panel-2);
+      padding: 14px;
+      border-radius: 10px;
+      white-space: pre-wrap;
+      line-height: 1.65;
+      font-size: 13px;
+      border: 1px solid var(--border);
+    }
+    .loader {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .token-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 8px;
+      word-break: break-all;
+    }
+    .token-line code {
+      background: var(--panel-2);
+      padding: 3px 6px;
+      border-radius: 6px;
+      color: var(--accent-2);
+      border: 1px solid var(--border);
+    }
+
+    .account-status {
+      padding: 12px 16px;
+      margin-bottom: 18px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.8;
+    }
+    .account-status .label { color: var(--accent-2); font-weight: 600; margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div class="title">
+        <span class="dot"></span>
+        <span>守望先锋数据查询</span>
+      </div>
+      <div class="bind-box">
+        <input id="battletagInput" placeholder="BattleTag#1234" />
+        <button class="btn primary" id="bindBtn">绑定</button>
+      </div>
+    </div>
+
+    <div class="account-status" id="accountStatus">
+      <span class="label">正在检查服务状态…</span>
+    </div>
+
+    <a href="/batch-rating" style="display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px;padding:21px 24px;border:2px solid #ffc267;border-radius:14px;background:linear-gradient(110deg,#ef8b28,#ffc76b);color:#21190d;text-decoration:none;box-shadow:0 5px 26px #f9a03f33"><span><strong style="display:block;font-size:22px">队友评分/上下等马查询</strong><span style="font-size:13px;opacity:.8">截图识别 · 近12场休闲 / 竞技 · SMURF 评级</span></span><span style="font-size:28px;font-weight:800" aria-hidden="true">→</span></a>
+    <div class="nav" id="nav"></div>
+
+    <div class="panel">
+      <h2 id="sectionTitle">请选择功能</h2>
+      <div id="formArea" class="form-grid"></div>
+      <div class="actions" id="actions"></div>
+      <div class="status" id="status"></div>
+      <div class="result" id="result"></div>
+    </div>
+  </div>
+
+  <script>
+    // ==================================================
+    // Token / bindings
+    // ==================================================
+    const LS_KEY = "ow_user_token";
+    let userToken = localStorage.getItem(LS_KEY) || "";
+
+    function renderTokenLine() {
+      // token 只在内部使用，不再在界面显示；保留 JS 生成逻辑即可。
+    }
+
+    // Token 只在内部使用，不再在界面展示。
+    function ensureToken() {
+      if (userToken) return;
+      return fetch("/api/token/new")
+        .then(x => x.json())
+        .then(r => {
+          if (r.token) {
+            userToken = r.token;
+            localStorage.setItem(LS_KEY, userToken);
+          }
+        });
+    }
+
+    // ==================================================
+    // 绑定状态管理
+    // ==================================================
+    const LS_BIND_TAG_KEY = "ow_user_battletag"; // 可选：在 localStorage 存一下当前绑定的 tag，减少一次 my-bind 调用
+    let currentBattletag = localStorage.getItem(LS_BIND_TAG_KEY) || ""; // 当前已绑定的账号（供显示用）
+
+    function clearAllCaches() {
+      // 1. 清理请求级数据缓存（DATA_CACHE）
+      for (const k of Object.keys(DATA_CACHE)) {
+        delete DATA_CACHE[k];
+      }
+      // 2. 清理 UI 级缓存（sectionCache）
+      sectionCache = {};
+      try { localStorage.removeItem(UI_CACHE_KEY); } catch (_) {}
+      // 3. 若当前 section 正在展示，清空界面上的结果
+      const resultEl = document.getElementById("result");
+      if (resultEl) resultEl.innerHTML = "";
+      const statusEl = document.getElementById("status");
+      if (statusEl) { statusEl.textContent = ""; statusEl.className = "status"; }
+    }
+
+    function setBindBoxState(state) {
+      // state: "unbound" | "bound"
+      const input = document.getElementById("battletagInput");
+      const btn = document.getElementById("bindBtn");
+      if (state === "bound") {
+        input.placeholder = currentBattletag || "已绑定";
+        input.value = "";
+        input.disabled = true;
+        btn.textContent = "解绑";
+        btn.className = "btn"; // 解绑按钮用普通样式
+      } else {
+        input.placeholder = "BattleTag#1234";
+        input.value = "";
+        input.disabled = false;
+        btn.textContent = "绑定";
+        btn.className = "btn primary";
+      }
+    }
+
+    async function initBindBox() {
+      // 启动时检查当前 token 的绑定状态
+      if (!userToken) return;
+      try {
+        const url = "/api/my-bind?token=" + encodeURIComponent(userToken);
+        const resp = await fetch(url, { cache: "no-store" });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && data.success) {
+            currentBattletag = data.display_name || data.battletag || "";
+            if (currentBattletag) localStorage.setItem(LS_BIND_TAG_KEY, currentBattletag);
+            setBindBoxState("bound");
+            setStatus(`已绑定：${currentBattletag}`, "ok");
+            return;
+          }
+        }
+      } catch (_) {}
+      // 未绑定
+      currentBattletag = "";
+      try { localStorage.removeItem(LS_BIND_TAG_KEY); } catch (_) {}
+      setBindBoxState("unbound");
+    }
+
+    document.getElementById("bindBtn").onclick = async () => {
+      const input = document.getElementById("battletagInput");
+      const btnText = document.getElementById("bindBtn").textContent.trim();
+
+      if (btnText === "解绑") {
+        // ---- 解绑 ----
+        if (!userToken) {
+          setStatus("没有 token，无法解绑", "err");
+          return;
+        }
+        setStatus("正在解绑…");
+        try {
+          const url = "/api/unbind?token=" + encodeURIComponent(userToken);
+          const r = await fetch(url, { method: "POST", cache: "no-store" }).then(x => x.json());
+          if (r.success) {
+            currentBattletag = "";
+            try { localStorage.removeItem(LS_BIND_TAG_KEY); } catch (_) {}
+            setBindBoxState("unbound");
+            clearAllCaches();
+            setStatus("已解绑，可以重新绑定新账号", "ok");
+          } else {
+            setStatus(`解绑失败：${r.error || r.message || ''}`, "err");
+          }
+        } catch (e) {
+          setStatus(`网络错误：${e.message}`, "err");
+        }
+        return;
+      }
+
+      // ---- 绑定 ----
+      const tag = input.value.trim();
+      if (!tag || !tag.includes("#")) {
+        setStatus("请输入正确的 BattleTag（形如 名字#数字）", "err");
+        return;
+      }
+      await ensureToken();
+      if (!userToken) {
+        setStatus("无法生成 token，请重试", "err");
+        return;
+      }
+      const url = `/api/bind?token=${encodeURIComponent(userToken)}&battletag=${encodeURIComponent(tag)}`;
+      setStatus("正在绑定…");
+      const r = await fetch(url, { method: "POST", cache: "no-store" }).then(x => x.json());
+      if (r.success) {
+        currentBattletag = r.display_name || r.battletag || tag;
+        if (currentBattletag) localStorage.setItem(LS_BIND_TAG_KEY, currentBattletag);
+        setBindBoxState("bound");
+        clearAllCaches(); // 切换账号必须清理缓存
+        setStatus(`已绑定：${currentBattletag}`, "ok");
+      } else {
+        setStatus(`绑定失败：${r.error || r.message || ''}`, "err");
+      }
+    };
+
+    function setStatus(msg, cls = "") {
+      const el = document.getElementById("status");
+      el.className = "status " + cls;
+      el.textContent = msg;
+    }
+
+    function setButtonLoading(btn, loading, originalText) {
+      if (!btn) return;
+      if (loading) {
+        btn.disabled = true;
+        btn.innerHTML =
+          '<span class="spinner"></span>查询中…';
+      } else {
+        btn.disabled = false;
+        btn.textContent = originalText || btn.dataset.originalText || "查询";
+      }
+    }
+
+    function setProgress(pct, stage) {
+      const wrap = document.getElementById("progressWrap");
+      const fill = document.getElementById("progressFill");
+      const pctEl = document.getElementById("progressPct");
+      const stageEl = document.getElementById("progressStage");
+      if (pct < 0) pct = 0;
+      if (pct > 100) pct = 100;
+      if (wrap) wrap.classList.add("active");
+      if (fill) fill.style.width = pct.toFixed(0) + "%";
+      if (pctEl) pctEl.textContent = pct.toFixed(0) + "%";
+      if (stageEl && stage) stageEl.textContent = stage;
+    }
+
+    function hideProgress() {
+      const wrap = document.getElementById("progressWrap");
+      if (wrap) wrap.classList.remove("active");
+      const fill = document.getElementById("progressFill");
+      if (fill) fill.style.width = "0%";
+      const pctEl = document.getElementById("progressPct");
+      if (pctEl) pctEl.textContent = "0%";
+      const stageEl = document.getElementById("progressStage");
+      if (stageEl) stageEl.textContent = "准备查询";
+    }
+
+    // 解析 SSE 文本流，返回最后一个完整事件
+    function parseSSEChunk(buffer, incoming) {
+      // 累积文本，按 \n\n 拆分事件
+      const text = buffer + incoming;
+      const parts = text.split(/\r?\n\r?\n/);
+      const remaining = parts.pop() || ""; // 最后一段通常不完整
+      const events = [];
+      for (const raw of parts) {
+        if (!raw.trim()) continue;
+        let eventName = "message";
+        const dataLines = [];
+        for (const line of raw.split(/\r?\n/)) {
+          if (!line) continue;
+          if (line.startsWith("event:")) eventName = line.slice(6).trim();
+          else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+        }
+        const dataRaw = dataLines.join("\n");
+        if (!dataRaw) continue;
+        try { events.push({ event: eventName, data: JSON.parse(dataRaw) }); }
+        catch (_) { events.push({ event: eventName, data: { text: dataRaw } }); }
+      }
+      return { remaining, events };
+    }
+
+    async function _fallbackToGet(endpoint, qs) {
+      const url = endpoint + (qs ? "?" + qs : "");
+      try {
+        setProgress(30, "回退到传统查询…");
+        const resp = await fetch(url, { cache: "no-store" });
+        let data;
+        try { data = await resp.json(); }
+        catch (_) { data = { success: false, error: "响应不是 JSON 格式", status_code: resp.status }; }
+
+        if (data.success) {
+          setDataCache(currentSection, qs, data);
+          renderResult(data, s);
+          setProgress(100, "完成");
+          setStatus("查询完成", "ok");
+          const fieldVals = {};
+          for (const [k, el] of Object.entries(values)) fieldVals[k] = (el.value || "").trim();
+          setSectionCache(currentSection, {
+            html: resultEl.innerHTML,
+            statusText: "查询完成",
+            statusClass: "ok",
+            fields: fieldVals,
+          });
+        } else {
+          const msg = data.error || (data.detail ? data.detail : '未知错误');
+          const statusCode = data.status_code || resp.status;
+          setStatus(`失败（${statusCode}）：${msg}`, "err");
+          const errBox = document.createElement("div");
+          errBox.className = "text";
+          errBox.style.borderColor = "#5a2a2a";
+          errBox.style.color = "#ff8a8a";
+          errBox.style.whiteSpace = "pre-wrap";
+          errBox.textContent = `请求失败 (HTTP ${statusCode})\n\n${msg}`;
+          resultEl.appendChild(errBox);
+          const fieldVals = {};
+          for (const [k, el] of Object.entries(values)) fieldVals[k] = (el.value || "").trim();
+          setSectionCache(currentSection, {
+            html: resultEl.innerHTML,
+            statusText: `失败（${statusCode}）：${msg}`,
+            statusClass: "err",
+            fields: fieldVals,
+          });
+        }
+      } catch (e) {
+        setStatus(`网络错误：${e.message}`, "err");
+        const fieldVals = {};
+        for (const [k, el] of Object.entries(values)) fieldVals[k] = (el.value || "").trim();
+        setSectionCache(currentSection, {
+          html: resultEl.innerHTML,
+          statusText: `网络错误：${e.message}`,
+          statusClass: "err",
+          fields: fieldVals,
+        });
+      }
+    }
+
+    // ==================================================
+    // Nav & sections
+    // ==================================================
+    const SECTIONS = {
+      profile: {
+        title: "📊 玩家资料",
+        fields: [{ key: "battletag", label: "BattleTag（留空用绑定账号）", type: "text" }],
+        endpoint: "/api/profile",
+        btnText: "查询资料",
+      },
+      matches: {
+        title: "📋 最近战绩",
+        fields: [
+          { key: "battletag", label: "BattleTag（留空用绑定账号）", type: "text" },
+          { key: "limit", label: "场数 (1-20)", type: "number", default: 5, min: 1, max: 20 },
+        ],
+        endpoint: "/api/matches",
+        btnText: "查询战绩",
+      },
+      match_detail: {
+        title: "🎯 对局详情",
+        fields: [
+          { key: "battletag", label: "BattleTag（留空用绑定账号）", type: "text" },
+          { key: "index", label: "序号 (从 1 开始)", type: "number", default: 1, min: 1 },
+        ],
+        endpoint: "/api/match-detail",
+        btnText: "查询对局详情",
+      },
+      analyze: {
+        title: "🤖 对局锐评 (含 AI)",
+        fields: [
+          { key: "battletag", label: "BattleTag（留空用绑定账号）", type: "text" },
+          { key: "index", label: "序号 (从 1 开始)", type: "number", default: 1, min: 1 },
+        ],
+        endpoint: "/api/analyze",
+        btnText: "开始分析",
+      },
+      rank: {
+        title: "🏆 段位历史",
+        fields: [{ key: "battletag", label: "BattleTag（留空用绑定账号）", type: "text" }],
+        endpoint: "/api/rank-history",
+        btnText: "查询段位",
+      },
+      quick_strength: {
+        title: "⚡ 快速强度",
+        fields: [
+          { key: "battletag", label: "BattleTag（留空用绑定账号）", type: "text" },
+          { key: "limit", label: "场数 (3-12)", type: "number", default: 5, min: 3, max: 12 },
+        ],
+        endpoint: "/api/quick-strength",
+        btnText: "查询快速强度",
+      },
+      comp_strength: {
+        title: "💪 竞技强度",
+        fields: [
+          { key: "battletag", label: "BattleTag（留空用绑定账号）", type: "text" },
+          { key: "limit", label: "场数 (3-12)", type: "number", default: 5, min: 3, max: 12 },
+        ],
+        endpoint: "/api/competitive-strength",
+        btnText: "查询竞技强度",
+      },
+      sameplay: {
+        title: "🔍 同玩查询",
+        fields: [
+          { key: "player1", label: "玩家 1（留空用绑定账号）", type: "text" },
+          { key: "player2", label: "玩家 2 BattleTag", type: "text" },
+          { key: "limit", label: "场数", type: "number", default: 10, min: 1, max: 40 },
+        ],
+        endpoint: "/api/sameplay",
+        btnText: "查询共同对局",
+      },
+      sameplay_detail: {
+        title: "🔬 同玩详情",
+        fields: [
+          { key: "player1", label: "玩家 1（留空用绑定账号）", type: "text" },
+          { key: "player2", label: "玩家 2 BattleTag", type: "text" },
+          { key: "index", label: "序号 (从 1 开始)", type: "number", default: 1, min: 1 },
+        ],
+        endpoint: "/api/sameplay-detail",
+        btnText: "查询同玩详情",
+      },
+      sameplay_analyze: {
+        title: "🧠 同玩锐评",
+        fields: [
+          { key: "player1", label: "玩家 1（留空用绑定账号）", type: "text" },
+          { key: "player2", label: "玩家 2 BattleTag", type: "text" },
+          { key: "index", label: "序号 (从 1 开始)", type: "number", default: 1, min: 1 },
+        ],
+        endpoint: "/api/sameplay-analyze",
+        btnText: "开始同玩锐评",
+      },
+      summary: {
+        title: "📅 对局总结",
+        fields: [
+          { key: "battletag", label: "BattleTag（留空用绑定账号）", type: "text" },
+          {
+            key: "scope",
+            label: "范围",
+            type: "select",
+            options: [
+              { v: "today", label: "今日" },
+              { v: "yesterday", label: "昨日" },
+              { v: "week", label: "最近 7 天" },
+            ],
+          },
+        ],
+        endpoint: "/api/summary",
+        btnText: "生成总结",
+      },
+      pick_rate: {
+        title: "🏅 英雄热度",
+        fields: [
+          {
+            key: "mode",
+            label: "模式",
+            type: "select",
+            options: [
+              { v: "competitive", label: "竞技" },
+              { v: "quick", label: "快速" },
+            ],
+          },
+          {
+            key: "rank",
+            label: "段位",
+            type: "select",
+            options: [
+              { v: "all", label: "全部" },
+              { v: "bronze", label: "青铜" },
+              { v: "silver", label: "白银" },
+              { v: "gold", label: "黄金" },
+              { v: "platinum", label: "铂金" },
+              { v: "diamond", label: "钻石" },
+              { v: "master", label: "大师" },
+              { v: "grandmaster", label: "宗师" },
+              { v: "champion", label: "冠军" },
+            ],
+          },
+        ],
+        endpoint: "/api/hero-pick-rate",
+        btnText: "查询热度",
+        needToken: false,
+      },
+      hero_perk: {
+        title: "🔧 英雄威能",
+        fields: [{ key: "hero", label: "英雄名（中/英均可）", type: "text" }],
+        endpoint: "/api/hero-perk",
+        btnText: "查询威能",
+        needToken: false,
+      },
+      hero_wiki: {
+        title: "📖 英雄维基",
+        fields: [
+          { key: "hero", label: "英雄名", type: "text" },
+          { key: "question", label: "问题（可选）", type: "text" },
+        ],
+        endpoint: "/api/hero-wiki",
+        btnText: "查询维基",
+        needToken: false,
+      },
+      shop: {
+        title: "🛒 守望商店",
+        fields: [],
+        endpoint: "/api/shop",
+        btnText: "查询当前商店",
+        needToken: false,
+      },
+      patch: {
+        title: "📝 补丁说明",
+        fields: [
+          {
+            key: "kind",
+            label: "类型",
+            type: "select",
+            options: [
+              { v: "latest", label: "最新" },
+              { v: "small", label: "小更新" },
+              { v: "big", label: "大更新" },
+            ],
+          },
+        ],
+        endpoint: "/api/patch-notes",
+        btnText: "查询补丁",
+        needToken: false,
+      },
+      search: {
+        title: "🔎 玩家搜索",
+        fields: [{ key: "keyword", label: "关键字（BattleTag）", type: "text" }],
+        endpoint: "/api/search-player",
+        btnText: "搜索",
+        needToken: false,
+      },
+      self_check: {
+        title: "🧪 服务自检",
+        fields: [],
+        endpoint: "/api/self-check",
+        btnText: "自检",
+        needToken: false,
+        isPlain: true,
+      },
+    };
+
+    const NAV_ORDER = [
+      ["profile", "📊 资料"],
+      ["matches", "📋 战绩"],
+      ["match_detail", "🎯 对局详情"],
+      ["analyze", "🤖 锐评"],
+      ["rank", "🏆 段位"],
+      ["quick_strength", "⚡ 快速强度"],
+      ["comp_strength", "💪 竞技强度"],
+      ["sameplay", "🔍 同玩"],
+      ["sameplay_detail", "🔬 同玩详情"],
+      ["sameplay_analyze", "🧠 同玩锐评"],
+      ["summary", "📅 总结"],
+      ["pick_rate", "🏅 英雄热度"],
+      ["hero_perk", "🔧 威能"],
+      ["hero_wiki", "📖 维基"],
+      ["shop", "🛒 商店"],
+      ["patch", "📝 补丁"],
+      ["search", "🔎 搜索"],
+      ["self_check", "🧪 自检"],
+    ];
+    const ENABLED_SECTIONS = new Set([
+      "profile",
+      "matches",
+      "match_detail",
+      "analyze",
+      "rank",
+      "quick_strength",
+      "comp_strength",
+      "pick_rate",
+      "search",
+      "self_check",
+    ]);
+
+    let currentSection = "profile";
+    let activeRequests = {};
+    let activeProgressTimers = {};
+
+    // ==================================================
+    // Section-level result cache (保留每个选项的最后结果，
+    // 避免切换选项后重新生成图片/文本)
+    // ==================================================
+    // ============================================================
+    // 前端请求级缓存（替代服务端内存缓存，降低服务器压力）
+    // ============================================================
+    // dataCache: { [cacheKey]: { respData: Object, cachedAt: number } }
+    //   - cacheKey = sectionKey + "|" + 排序后的 query string
+    //   - respData 是接口返回的原始 JSON（含图片 base64）
+    //   - 仅写入内存，不落盘到 localStorage，避免大 base64 占满磁盘配额
+    // uiCache:   { [sectionKey]: { html, statusText, statusClass, fields, cachedAt } }
+    //   - 切换 tab 时恢复界面；html 只保留内存
+    // ============================================================
+    const DATA_CACHE = {};
+    const UI_CACHE_KEY = "ow_section_uicache_v1";
+    const DEFAULT_TTL = 10 * 60 * 1000; // 若 section 未声明 ttl，则默认 10 分钟
+
+    // 给所有 SECTIONS 补一个默认 ttl（毫秒）
+    (function () {
+      const ttlMap = {
+        profile: 10 * 60 * 1000,
+        matches: 5 * 60 * 1000,
+        match_detail: 60 * 60 * 1000,
+        analyze: 30 * 60 * 1000,
+        rank: 60 * 60 * 1000,
+        quick_strength: 5 * 60 * 1000,
+        comp_strength: 5 * 60 * 1000,
+        sameplay: 10 * 60 * 1000,
+        sameplay_detail: 60 * 60 * 1000,
+        sameplay_analyze: 60 * 60 * 1000,
+        summary: 30 * 60 * 1000,
+        pick_rate: 6 * 60 * 60 * 1000,
+        hero_perk: 24 * 60 * 60 * 1000,
+        hero_wiki: 60 * 60 * 1000,
+        shop: 60 * 60 * 1000,
+        patch: 24 * 60 * 60 * 1000,
+        search: 10 * 60 * 1000,
+        self_check: 5 * 60 * 1000,
+      };
+      for (const k of Object.keys(ttlMap)) {
+        if (SECTIONS[k] && SECTIONS[k].ttl === undefined) {
+          SECTIONS[k].ttl = ttlMap[k];
+        }
+      }
+    })();
+
+    let sectionCache = (function () {
+      try {
+        const raw = localStorage.getItem(UI_CACHE_KEY);
+        if (!raw) return {};
+        const obj = JSON.parse(raw);
+        return obj && typeof obj === "object" ? obj : {};
+      } catch (_) {
+        return {};
+      }
+    })();
+
+    function persistSectionCache() {
+      try {
+        localStorage.setItem(UI_CACHE_KEY, JSON.stringify(sectionCache));
+      } catch (_) { /* 静默失败 */ }
+    }
+
+    function setSectionCache(key, payload) {
+      if (!key) return;
+      sectionCache[key] = {
+        html: (payload && payload.html) || "",
+        statusText: (payload && payload.statusText) || "",
+        statusClass: (payload && payload.statusClass) || "",
+        cachedAt: Date.now(),
+        fields: (payload && payload.fields) || {},
+      };
+      persistSectionCache();
+    }
+
+    function clearSectionCache(key) {
+      if (!key) return;
+      delete sectionCache[key];
+      persistSectionCache();
+    }
+
+    function stopProgressUI() {
+    }
+
+    function abortActiveQuery(section) {
+      if (activeRequests[section]) {
+        if (activeRequests[section].controller) {
+          activeRequests[section].controller.abort();
+        }
+        if (activeRequests[section].polling !== undefined) {
+          activeRequests[section].polling = false;
+        }
+        delete activeRequests[section];
+      }
+      if (activeProgressTimers[section]) {
+        clearInterval(activeProgressTimers[section]);
+        delete activeProgressTimers[section];
+      }
+    }
+
+    // ---------- 新的请求级缓存 ----------
+    function buildDataCacheKey(sectionKey, qs) {
+      // sectionKey + 排序后的 query
+      return sectionKey + "|" + qs;
+    }
+
+    function getDataCache(sectionKey, qs) {
+      const key = buildDataCacheKey(sectionKey, qs);
+      const entry = DATA_CACHE[key];
+      if (!entry) return null;
+      const ttl = (SECTIONS[sectionKey] && SECTIONS[sectionKey].ttl) || DEFAULT_TTL;
+      if (Date.now() - entry.cachedAt > ttl) {
+        delete DATA_CACHE[key];
+        return null;
+      }
+      return entry.respData;
+    }
+
+    function setDataCache(sectionKey, qs, respData) {
+      const key = buildDataCacheKey(sectionKey, qs);
+      DATA_CACHE[key] = { respData: respData, cachedAt: Date.now() };
+    }
+
+    function renderNav() {
+      const nav = document.getElementById("nav");
+      nav.innerHTML = "";
+      NAV_ORDER.forEach(([key, label]) => {
+        const enabled = ENABLED_SECTIONS.has(key);
+        const el = document.createElement("div");
+        const classes = ["item"];
+        if (enabled && currentSection === key) classes.push("active");
+        if (!enabled) classes.push("disabled");
+        el.className = classes.join(" ");
+        el.textContent = label + (enabled ? "" : " (开发中)");
+        if (enabled) {
+          el.onclick = () => {
+            stopProgressUI();
+            currentSection = key;
+            try { history.replaceState(null, "", "#" + key); } catch (_) {}
+            renderNav();
+            renderSection();
+          };
+        } else {
+          el.title = "该功能暂未开放";
+          el.onclick = (e) => {
+            e.preventDefault();
+            return false;
+          };
+        }
+        nav.appendChild(el);
+      });
+    }
+
+    function renderSection() {
+      const s = SECTIONS[currentSection];
+      document.getElementById("sectionTitle").textContent = s.title;
+
+      const formArea = document.getElementById("formArea");
+      formArea.innerHTML = "";
+      const values = {};
+
+      // 从缓存还原上次填写的表单值（对有 default 的字段仍保留默认，缓存优先）
+      const cached = sectionCache[currentSection];
+      const cachedFields = cached ? (cached.fields || {}) : {};
+
+      s.fields.forEach(f => {
+        const wrap = document.createElement("div");
+        const lab = document.createElement("label");
+        lab.textContent = f.label;
+        wrap.appendChild(lab);
+        let input;
+        if (f.type === "select") {
+          input = document.createElement("select");
+          (f.options || []).forEach(o => {
+            const opt = document.createElement("option");
+            opt.value = o.v;
+            opt.textContent = o.label;
+            input.appendChild(opt);
+          });
+          if (f.default) input.value = f.default;
+        } else {
+          input = document.createElement("input");
+          input.type = f.type;
+          if (f.default != null) input.value = f.default;
+          if (f.min != null) input.min = f.min;
+          if (f.max != null) input.max = f.max;
+        }
+        // 缓存的表单值 > 默认
+        if (cachedFields[f.key] != null && cachedFields[f.key] !== "") {
+          input.value = cachedFields[f.key];
+        }
+        input.dataset.key = f.key;
+        wrap.appendChild(input);
+        formArea.appendChild(wrap);
+        values[f.key] = input;
+      });
+
+      const actions = document.getElementById("actions");
+      actions.innerHTML = "";
+      const btn = document.createElement("button");
+      btn.className = "btn primary";
+      btn.textContent = s.btnText;
+      btn.dataset.originalText = s.btnText;
+      btn.id = "queryBtn";
+      btn.onclick = () => runQuery(s, values, btn);
+      actions.appendChild(btn);
+
+      const progressWrap = document.createElement("div");
+      progressWrap.className = "progress-wrap";
+      progressWrap.id = "progressWrap";
+      progressWrap.innerHTML =
+        '<div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>' +
+        '<div class="progress-meta">' +
+        '<span class="progress-stage" id="progressStage">准备查询</span>' +
+        '<span class="progress-pct" id="progressPct">0%</span>' +
+        '</div>';
+      actions.appendChild(progressWrap);
+      hideProgress();
+
+      if (activeRequests[currentSection]) {
+        const stages = [
+          { pct: 5, text: "准备查询…" },
+          { pct: 15, text: "解析 BattleTag…" },
+          { pct: 35, text: "查询玩家资料…" },
+          { pct: 55, text: "查询战绩列表…" },
+          { pct: 75, text: "渲染图片…" },
+          { pct: 90, text: "生成响应…" },
+        ];
+        const req = activeRequests[currentSection];
+        let pct = 2;
+        let stageText = "查询中…";
+        if (req.stageIdx < stages.length) {
+          pct = stages[req.stageIdx].pct;
+          stageText = stages[req.stageIdx].text;
+        } else if (req.stageIdx === stages.length) {
+          pct = 95;
+          stageText = "正在处理，请稍候…";
+        } else {
+          pct = 98;
+          stageText = "正在处理，请稍候…";
+        }
+        setProgress(pct, stageText);
+        setButtonLoading(btn, true, s.btnText);
+        setStatus("查询中…");
+      }
+
+      // 如果已有缓存结果 → 直接恢复（图片/文本 + 状态栏）；否则清空
+      const resultEl = document.getElementById("result");
+      const statusEl = document.getElementById("status");
+      if (cached && cached.html) {
+        resultEl.innerHTML = cached.html;
+        statusEl.className = "status " + (cached.statusClass || "");
+        statusEl.textContent = cached.statusText || "";
+      } else {
+        resultEl.innerHTML = "";
+        statusEl.textContent = "";
+        statusEl.className = "status";
+      }
+    }
+
+    const ASYNC_ENDPOINTS = new Set([
+      "/api/analyze",
+      "/api/sameplay-analyze",
+    ]);
+
+    async function runQuery(s, values, btn) {
+      const params = new URLSearchParams();
+      if (s.needToken !== false) {
+        await ensureToken();
+        if (userToken) params.append("token", userToken);
+      }
+      let endpoint = s.endpoint;
+      for (const [k, el] of Object.entries(values)) {
+        const v = (el.value || "").trim();
+        if (v) params.append(k, v);
+      }
+      const qs = params.toString();
+      const sortedQs = qs;
+      const resultEl = document.getElementById("result");
+      const originalText = (btn && btn.dataset.originalText) || s.btnText;
+      const requestSection = currentSection;
+
+      const cachedData = getDataCache(currentSection, sortedQs);
+      if (cachedData && cachedData.success) {
+        setStatus("缓存命中（前端缓存）", "ok");
+        resultEl.innerHTML = "";
+        renderResult(cachedData, s);
+        const fieldVals = {};
+        for (const [k, el] of Object.entries(values)) fieldVals[k] = (el.value || "").trim();
+        setSectionCache(currentSection, {
+          html: resultEl.innerHTML,
+          statusText: "缓存命中（前端缓存）",
+          statusClass: "ok",
+          fields: fieldVals,
+        });
+        return;
+      }
+
+      abortActiveQuery(currentSection);
+      setStatus("查询中…");
+      resultEl.innerHTML = "";
+      setButtonLoading(btn, true, originalText);
+      setProgress(2, "准备查询…");
+
+      if (ASYNC_ENDPOINTS.has(endpoint)) {
+        await runAsyncQuery(endpoint, params, s, values, btn, originalText, requestSection);
+      } else {
+        await runSyncQuery(endpoint, params, sortedQs, s, values, btn, originalText, requestSection);
+      }
+    }
+
+    async function runSyncQuery(endpoint, params, sortedQs, s, values, btn, originalText, requestSection) {
+      const qs = params.toString();
+      const url = endpoint + (qs ? "?" + qs : "");
+      const resultEl = document.getElementById("result");
+
+      const controller = new AbortController();
+      activeRequests[currentSection] = {
+        controller: controller,
+        stageIdx: 0
+      };
+
+      const stages = [
+        { pct: 5, text: "准备查询…" },
+        { pct: 15, text: "解析 BattleTag…" },
+        { pct: 35, text: "查询玩家资料…" },
+        { pct: 55, text: "查询战绩列表…" },
+        { pct: 75, text: "渲染图片…" },
+        { pct: 90, text: "生成响应…" },
+      ];
+      activeProgressTimers[currentSection] = setInterval(() => {
+        if (!activeRequests[currentSection]) return;
+        const req = activeRequests[currentSection];
+        if (req.stageIdx < stages.length) {
+          const stage = stages[req.stageIdx];
+          if (currentSection === requestSection) {
+            setProgress(stage.pct, stage.text);
+          }
+          req.stageIdx++;
+        } else if (req.stageIdx === stages.length) {
+          if (currentSection === requestSection) {
+            setProgress(95, "正在处理，请稍候…");
+          }
+          req.stageIdx++;
+        } else {
+          if (currentSection === requestSection) {
+            setProgress(Math.min(98, parseInt(document.getElementById("progressPct").textContent) + 1), "正在处理，请稍候…");
+          }
+        }
+      }, 800);
+
+      try {
+        const resp = await fetch(url, { cache: "no-store", signal: controller.signal });
+        let data;
+        try { data = await resp.json(); }
+        catch (_) { data = { success: false, error: "响应不是 JSON 格式", status_code: resp.status }; }
+
+        if (activeProgressTimers[requestSection]) {
+          clearInterval(activeProgressTimers[requestSection]);
+          delete activeProgressTimers[requestSection];
+        }
+
+        const fieldVals = {};
+        for (const [k, el] of Object.entries(values)) fieldVals[k] = (el.value || "").trim();
+
+        if (data.success) {
+          setDataCache(requestSection, sortedQs, data);
+          const tempEl = document.createElement("div");
+          renderResult(data, s, tempEl);
+          if (currentSection === requestSection) {
+            setProgress(100, "完成");
+            setStatus("查询完成", "ok");
+            renderResult(data, s);
+            setTimeout(() => hideProgress(), 600);
+          }
+          setSectionCache(requestSection, {
+            html: tempEl.innerHTML,
+            statusText: "查询完成",
+            statusClass: "ok",
+            fields: fieldVals,
+          });
+        } else {
+          const msg = data.error || (data.detail ? data.detail : '未知错误');
+          const statusCode = data.status_code || resp.status;
+          const errBox = document.createElement("div");
+          errBox.className = "text";
+          errBox.style.borderColor = "#5a2a2a";
+          errBox.style.color = "#ff8a8a";
+          errBox.style.whiteSpace = "pre-wrap";
+          errBox.textContent = `请求失败 (HTTP ${statusCode})\n\n${msg}`;
+          if (currentSection === requestSection) {
+            setProgress(0, "查询失败");
+            setStatus(`失败（${statusCode}）：${msg}`, "err");
+            resultEl.appendChild(errBox.cloneNode(true));
+            setTimeout(() => hideProgress(), 800);
+          }
+          setSectionCache(requestSection, {
+            html: errBox.outerHTML,
+            statusText: `失败（${statusCode}）：${msg}`,
+            statusClass: "err",
+            fields: fieldVals,
+          });
+        }
+      } catch (e) {
+        if (e.name === "AbortError") {
+          if (activeProgressTimers[requestSection]) {
+            clearInterval(activeProgressTimers[requestSection]);
+            delete activeProgressTimers[requestSection];
+          }
+          hideProgress();
+          return;
+        }
+        if (activeProgressTimers[requestSection]) {
+          clearInterval(activeProgressTimers[requestSection]);
+          delete activeProgressTimers[requestSection];
+        }
+        const fieldVals = {};
+        for (const [k, el] of Object.entries(values)) fieldVals[k] = (el.value || "").trim();
+        const errBox = document.createElement("div");
+        errBox.className = "text";
+        errBox.style.borderColor = "#5a2a2a";
+        errBox.style.color = "#ff8a8a";
+        errBox.style.whiteSpace = "pre-wrap";
+        errBox.textContent = `网络错误：${e.message}`;
+        if (currentSection === requestSection) {
+          setProgress(0, "查询失败");
+          setStatus(`网络错误：${e.message}`, "err");
+          resultEl.appendChild(errBox.cloneNode(true));
+          setTimeout(() => hideProgress(), 800);
+        }
+        setSectionCache(requestSection, {
+          html: errBox.outerHTML,
+          statusText: `网络错误：${e.message}`,
+          statusClass: "err",
+          fields: fieldVals,
+        });
+      } finally {
+        if (activeRequests[requestSection]) {
+          delete activeRequests[requestSection];
+        }
+        if (activeProgressTimers[requestSection]) {
+          clearInterval(activeProgressTimers[requestSection]);
+          delete activeProgressTimers[requestSection];
+        }
+        if (currentSection === requestSection) {
+          setButtonLoading(btn, false, originalText);
+        }
+      }
+    }
+
+    async function runAsyncQuery(endpoint, params, s, values, btn, originalText, requestSection) {
+      const resultEl = document.getElementById("result");
+      const paramObj = {};
+      for (const [k, v] of params) {
+        paramObj[k] = v;
+      }
+
+      activeRequests[currentSection] = {
+        taskId: null,
+        polling: true
+      };
+
+      try {
+        setProgress(10, "创建异步任务…");
+        const createResp = await fetch("/api/task/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint, params: paramObj }),
+          cache: "no-store",
+        });
+
+        const createData = await createResp.json();
+        if (!createData.success) {
+          throw new Error(createData.data?.message || "任务创建失败");
+        }
+
+        const taskId = createData.data.task_id;
+        activeRequests[currentSection].taskId = taskId;
+        setStatus(`任务已创建，正在处理… (ID: ${taskId})`);
+
+        const pollInterval = setInterval(async () => {
+          if (!activeRequests[currentSection]?.polling) {
+            clearInterval(pollInterval);
+            return;
+          }
+
+          try {
+            const pollResp = await fetch(`/api/task/${taskId}`, { cache: "no-store" });
+            const pollData = await pollResp.json();
+
+            if (!pollData.success) {
+              clearInterval(pollInterval);
+              throw new Error(pollData.data?.error || "任务查询失败");
+            }
+
+            const task = pollData.data;
+            if (task.status === "done") {
+              clearInterval(pollInterval);
+              activeRequests[currentSection].polling = false;
+
+              const fieldVals = {};
+              for (const [k, el] of Object.entries(values)) fieldVals[k] = (el.value || "").trim();
+
+              if (task.result && task.result.success) {
+                setDataCache(requestSection, JSON.stringify(paramObj), task.result);
+                const tempEl = document.createElement("div");
+                renderResult(task.result, s, tempEl);
+                if (currentSection === requestSection) {
+                  setProgress(100, "完成");
+                  setStatus("查询完成", "ok");
+                  renderResult(task.result, s);
+                  setTimeout(() => hideProgress(), 600);
+                }
+                setSectionCache(requestSection, {
+                  html: tempEl.innerHTML,
+                  statusText: "查询完成",
+                  statusClass: "ok",
+                  fields: fieldVals,
+                });
+              } else {
+                const msg = task.result?.error || task.result?.detail || "任务执行失败";
+                const errBox = document.createElement("div");
+                errBox.className = "text";
+                errBox.style.borderColor = "#5a2a2a";
+                errBox.style.color = "#ff8a8a";
+                errBox.style.whiteSpace = "pre-wrap";
+                errBox.textContent = `任务执行失败\n\n${msg}`;
+                if (currentSection === requestSection) {
+                  setProgress(0, "查询失败");
+                  setStatus(`失败：${msg}`, "err");
+                  resultEl.appendChild(errBox.cloneNode(true));
+                  setTimeout(() => hideProgress(), 800);
+                }
+                setSectionCache(requestSection, {
+                  html: errBox.outerHTML,
+                  statusText: `失败：${msg}`,
+                  statusClass: "err",
+                  fields: fieldVals,
+                });
+              }
+
+              if (currentSection === requestSection) {
+                setButtonLoading(btn, false, originalText);
+              }
+
+            } else if (task.status === "error") {
+              clearInterval(pollInterval);
+              activeRequests[currentSection].polling = false;
+
+              const msg = task.error || "任务执行错误";
+              const errBox = document.createElement("div");
+              errBox.className = "text";
+              errBox.style.borderColor = "#5a2a2a";
+              errBox.style.color = "#ff8a8a";
+              errBox.style.whiteSpace = "pre-wrap";
+              errBox.textContent = `任务执行错误\n\n${msg}`;
+              if (currentSection === requestSection) {
+                setProgress(0, "查询失败");
+                setStatus(`失败：${msg}`, "err");
+                resultEl.appendChild(errBox.cloneNode(true));
+                setTimeout(() => hideProgress(), 800);
+              }
+
+              const fieldVals = {};
+              for (const [k, el] of Object.entries(values)) fieldVals[k] = (el.value || "").trim();
+              setSectionCache(requestSection, {
+                html: errBox.outerHTML,
+                statusText: `失败：${msg}`,
+                statusClass: "err",
+                fields: fieldVals,
+              });
+
+              if (currentSection === requestSection) {
+                setButtonLoading(btn, false, originalText);
+              }
+
+            } else {
+              if (currentSection === requestSection) {
+                setProgress(task.progress_pct || 50, task.stage || "处理中…");
+              }
+            }
+
+          } catch (e) {
+            clearInterval(pollInterval);
+            activeRequests[currentSection].polling = false;
+
+            const errBox = document.createElement("div");
+            errBox.className = "text";
+            errBox.style.borderColor = "#5a2a2a";
+            errBox.style.color = "#ff8a8a";
+            errBox.style.whiteSpace = "pre-wrap";
+            errBox.textContent = `轮询错误：${e.message}`;
+            if (currentSection === requestSection) {
+              setProgress(0, "查询失败");
+              setStatus(`轮询错误：${e.message}`, "err");
+              resultEl.appendChild(errBox.cloneNode(true));
+              setTimeout(() => hideProgress(), 800);
+            }
+
+            const fieldVals = {};
+            for (const [k, el] of Object.entries(values)) fieldVals[k] = (el.value || "").trim();
+            setSectionCache(requestSection, {
+              html: errBox.outerHTML,
+              statusText: `轮询错误：${e.message}`,
+              statusClass: "err",
+              fields: fieldVals,
+            });
+
+            if (currentSection === requestSection) {
+              setButtonLoading(btn, false, originalText);
+            }
+          }
+        }, 2000);
+
+        activeProgressTimers[currentSection] = pollInterval;
+
+      } catch (e) {
+        activeRequests[currentSection].polling = false;
+        const errBox = document.createElement("div");
+        errBox.className = "text";
+        errBox.style.borderColor = "#5a2a2a";
+        errBox.style.color = "#ff8a8a";
+        errBox.style.whiteSpace = "pre-wrap";
+        errBox.textContent = `任务创建失败：${e.message}`;
+        if (currentSection === requestSection) {
+          setProgress(0, "查询失败");
+          setStatus(`任务创建失败：${e.message}`, "err");
+          resultEl.appendChild(errBox.cloneNode(true));
+          setTimeout(() => hideProgress(), 800);
+        }
+
+        const fieldVals = {};
+        for (const [k, el] of Object.entries(values)) fieldVals[k] = (el.value || "").trim();
+        setSectionCache(requestSection, {
+          html: errBox.outerHTML,
+          statusText: `任务创建失败：${e.message}`,
+          statusClass: "err",
+          fields: fieldVals,
+        });
+
+        if (currentSection === requestSection) {
+          setButtonLoading(btn, false, originalText);
+        }
+      }
+    }
+
+    function renderResult(data, section, el) {
+      el = el || document.getElementById("result");
+      el.innerHTML = "";
+      const payload = data.data || {};
+
+      if (section && section.isPlain) {
+        const div = document.createElement("div");
+        div.className = "text";
+        div.textContent = JSON.stringify(data, null, 2);
+        el.appendChild(div);
+        return;
+      }
+
+      if (payload.type === "multi" && Array.isArray(payload.items)) {
+        payload.items.forEach((it, idx) => {
+          const item = document.createElement("div");
+          item.className = "item";
+          if (it.type === "image") {
+            const img = document.createElement("img");
+            img.src = `data:${it.media_type || "image/png"};base64,${it.content}`;
+            img.alt = `结果图 ${idx + 1}`;
+            item.appendChild(img);
+          } else {
+            const txt = document.createElement("div");
+            txt.className = "text";
+            txt.textContent = it.content || "";
+            item.appendChild(txt);
+          }
+          el.appendChild(item);
+        });
+        return;
+      }
+
+      if (payload.type === "image") {
+        const img = document.createElement("img");
+        img.src = `data:${payload.media_type || "image/png"};base64,${payload.content}`;
+        img.alt = "结果图";
+        el.appendChild(img);
+        return;
+      }
+
+      // text / fallback
+      const div = document.createElement("div");
+      div.className = "text";
+      div.textContent = payload.content || payload.fallback_text || JSON.stringify(data, null, 2);
+      el.appendChild(div);
+    }
+
+    // init
+    renderTokenLine();
+    // 从 URL hash 恢复上次选中的选项（例如 #matches）
+    const hashKey = (location.hash || "").replace(/^#/, "").trim();
+    if (hashKey && ENABLED_SECTIONS.has(hashKey) && SECTIONS[hashKey]) {
+      currentSection = hashKey;
+    }
+    renderNav();
+    renderSection();
+    // 异步初始化绑定状态 + 服务状态
+    initBindBox();
+    renderAccountStatus();
+
+    // 支持浏览器前进/后退切换选项
+    window.addEventListener("hashchange", () => {
+      const k = (location.hash || "").replace(/^#/, "").trim();
+      if (k && ENABLED_SECTIONS.has(k) && SECTIONS[k] && k !== currentSection) {
+        stopProgressUI();
+        currentSection = k;
+        renderNav();
+        renderSection();
+      }
+    });
+
+    async function renderAccountStatus() {
+      const bar = document.getElementById("accountStatus");
+      try {
+        const data = await fetch("/api/self-check").then(x => x.json());
+        const ok = !!data.api_client_ready;
+        bar.className = "account-status " + (ok ? "ok" : "warn");
+        if (ok) {
+          bar.innerHTML = `<span class="label">✅ 凭据已配置</span>网易大神凭据已载入，可以尝试查询玩家资料、战绩和段位。`;
+        } else {
+          bar.innerHTML = `<span class="label">⚠️ 玩家查询未启用</span>
+            请先配置网易大神的战绩凭据，再绑定战网昵称。<br>
+            在本机运行 <code>configure_account.cmd</code> 输入 <code>role_id</code> 和 <code>token</code>，保存后会自动重启。
+            <a href="https://github.com/AddOneSecondL/Overstats/blob/main/Faststart.md" target="_blank" rel="noopener noreferrer" style="color:var(--accent-2)">查看凭据获取教程</a>。
+            暂时可以使用英雄热度、本地搜索和服务自检。`;
+        }
+      } catch (e) {
+        bar.className = "account-status warn";
+        bar.innerHTML = `<span class="label">⚠️ 无法连接服务</span>${e.message}`;
+      }
+    }
+  </script>
+</body>
+</html>

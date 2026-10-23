@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>队友评分/上下等马查询 · 守望先锋</title>
+<link rel="stylesheet" href="/static/batch_rating.css">
+<script defer src="/static/batch_rating.js"></script>
+</head>
+<body><main>
+<a href="/">← 返回普通查询</a>
+<div class="eyebrow">TEAMMATE RATING · RECENT 12</div>
+<div class="hero-line"><div><h1>队友评分/上下等马查询</h1><div class="sub">截图识别多人账号，查看近12场休闲或竞技表现。</div></div><div class="formula"><strong>Fleta</strong> = 个人最后一击 ÷（团队最后一击 × 50%）<br><span class="muted">占比50% = Fleta100% · 指数可超过100%</span></div></div>
+<section class="panel">
+<div class="inputs">
+<div><h2>1 · 上传或粘贴截图</h2><label class="drop" id="drop">选择图片、拖到这里，或按 Ctrl+V 粘贴截图<input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/bmp"><small>本地中文 OCR · 最大 8 MB</small><img class="hidden" id="preview" alt="待识别的账号截图"></label><div class="note" id="ocrNote"></div></div>
+<div><h2>2 · 检查账号列表</h2><label for="tags">每行一个完整 BattleTag，也可以直接输入</label><textarea id="tags" placeholder="昵称#12345&#10;另一位玩家#67890" spellcheck="false"></textarea><div class="note">自动去重，最多32人。识别有误可直接修改。</div><div class="actions"><button id="leisure" class="primary">查询近12场休闲</button><button id="competitive" class="primary">查询近12场竞技</button></div></div>
+</div>
+<div id="status" class="status" role="status">请选择截图或输入账号。</div><progress id="progress" value="0" max="100" class="hidden"></progress>
+<div id="accessSection" class="note hidden"><label for="accessKey">此服务需要访问码</label> <input id="accessKey" type="password" autocomplete="off" placeholder="输入管理员提供的访问码"></div>
+</section>
+<section id="results" class="panel hidden">
+<div class="section-title"><h2 id="resultTitle">查询结果</h2><button id="download">导出数据</button></div>
+<p id="summary"></p>
+<p id="relativeNotice" class="notice">上下等马仅在本次查询名单内相对区分；相对评分不代表绝对水平。</p>
+<div class="scroll"><table><thead><tr><th>排名</th><th>玩家</th><th>相对分档</th><th>综合分 / 等级</th><th>样本 / 完整度</th><th>主要位置</th><th>胜率 · 仅参考</th><th>最后一击占比</th><th>综合 Fleta</th><th>伤害/10分</th><th>阵亡/10分</th><th>碾压降权</th></tr></thead><tbody id="rankings"></tbody></table></div>
+<div class="summary-box"><div class="section-title"><h2>我方上下等马</h2><button id="copySummary">复制简短文本</button></div><label for="horseSummary" class="note">括号内：近12场评分 / Fleta；样本不足时标注实际场数。</label><textarea id="horseSummary" readonly rows="3"></textarea></div>
+<div class="key note"><span>展开玩家查看逐场详情</span><span class="delta neg1">轻扣</span><span class="delta neg2">较重扣分</span><span class="delta neg3">严重扣分</span><span class="delta pos1">小幅加分</span><span class="delta pos2">明显加分</span><span class="delta pos3">高权重加分</span><span>数据下方±数字为该项相对基准的分数贡献，悬停查看队友参考值。</span></div>
+<div id="details"></div>
+</section>
+<section class="panel"><h2>评分参考</h2><div class="legend"><div><strong>坦克 T</strong><br><small>兼顾伤害、最后一击与生存。最后一击占比≥30%额外加分。</small></div><div><strong>输出 C</strong><br><small>侧重伤害与最后一击。最后一击占比≥40%额外加分。</small></div><div><strong>辅助 N</strong><br><small>兼顾生存、治疗与伤害。最后一击占比越高，加分增长越快；高阵亡明显扣分，需高占比进攻表现补回。</small></div></div>
+<p class="note">任意位置最后一击占比≥50%时高权重加分；近12场中至少5场达到此条件，等级标记为 <span class="pill smurf">SMURF</span>。Fleta 仅表示上述指数，评分门槛使用最后一击真实占比。</p>
+<p class="note">全队0-0-x、全队负战绩及明显碾压局，对胜负双方均降低本场权重；不足3分钟的短局也降权。胜率仅供参考，不直接加减个人评分。伤害、治疗等数据按每10分钟比较。</p>
+<details><summary>样本与分档说明</summary><p class="note">只查询所选模式，休闲与竞技分开，不混入角斗领域。关键数据缺失不计分；不足12场显示实际场数并标记暂定。综合 Fleta 为全部有效对局个人最后一击之和 ÷（对应团队最后一击之和 × 50%）。</p><p class="note">上中下等马只在本次名单内相对排序，同分同档，单人显示中等马，无数据不评级。S/A/B/C/D为自定义分数等级，不是网易官方评分，也不代表段位。</p></details>
+</section>
+</main></body></html>

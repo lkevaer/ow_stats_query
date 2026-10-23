@@ -1,0 +1,111 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+.venv.bak/
+
+# 构建产物
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# 类型检查
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+
+# ===== 编辑器 / IDE =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+.trae/
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== 本项目运行产物 =====
+# 启动脚本生成的 PID / 日志
+api_server.pid
+api_server.log
+api_server.error.log
+
+# 业务绑定数据（由运行时生成/维护，不要提交到仓库）
+bindings.json
+
+# 缓存 / 临时图像产物
+cache/
+*.cache
+*.tmp
+.pai/
+data/ow_api/overstats/cache_img/
+
+# 图标资源（运行时自动下载，不要提交）
+data/ow_api/overstats/query_tool_assets/
+
+# 数据库文件（运行时自动创建）
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# 完整的运行时数据目录
+data/
+
+# ===== 本地私有配置（如果存在）=====
+# 约定：真正的生产密钥放在 .local.yaml 或 .env，不提交到仓库
+*.local.yaml
+*.local.yml
+.env
+.env.*
+!.env.example
+api_server/config.yaml
+api_server/data/
+PROGRESS.md
+deployment-*
+batch-rating-result.*
+batch-rating-updated.*
+github-deployment.*
+*-check-task.txt
+*-verification.json
+publish-staging/
+publish-audit.json
+
+# ===== 前端项目（Taro）=====
+# Node.js 依赖（安装后会产生大量文件）
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# 前端构建产物
+dist/
+
+# TypeScript 编译缓存
+*.tsbuildinfo
+
+# 前端开发服务器日志
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

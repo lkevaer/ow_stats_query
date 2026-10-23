@@ -1,0 +1,60 @@
+# 守望先锋战绩查询 · 队友评分
+
+基于 [DustEater/ow_stats_query](https://github.com/DustEater/ow_stats_query) 修改，保留完整查询服务、Web 页面和 Taro 客户端源码。
+
+- 普通查询：资料、对局、英雄、段位历史等。
+- **队友评分/上下等马查询**：上传截图或输入多个 BattleTag，分别查询近12场休闲或竞技，生成详细表格与可复制的简短文字。
+- 逐场英雄头像、地图图标、胜负、最后一击占比、Fleta、伤害、治疗、阵亡和加减分；碾压局降权、SMURF 标记。
+- 不需要 AI 密钥即可查询及评分。
+
+## Windows 运行
+
+需要 Python 3.11 或更新版本。
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements_for_api.txt
+```
+
+双击 `configure_account.cmd`，按 [LOGIN.md](LOGIN.md) 填入自己的网易大神业务凭据，随后服务自动启动。已配置账号时双击 `start_local.cmd`，停止使用 `stop_local.cmd`。
+
+打开 [本机首页](http://127.0.0.1:41888/) 或 [队友评分](http://127.0.0.1:41888/batch-rating)。截图识别使用 Windows 中文 OCR，需要系统安装中文识别组件。
+
+配置优先使用环境变量；没有 `api_server/config.yaml` 时会读取安全的 `config.yaml.example`，无需复制私有配置文件。
+
+## Docker 运行
+
+Docker 镜像内置 Tesseract 简体中文与英文识别。
+
+```sh
+cp .env.example .env
+# 编辑 .env，填写自己的 OW_DASHEN_ROLE_ID 和 OW_DASHEN_TOKEN
+docker compose up -d --build
+```
+
+入口同样为 `http://127.0.0.1:41888/batch-rating`。数据保存在 Docker 卷中。更新代码后再次运行上述启动命令；停止使用 `docker compose down`。
+
+默认只绑定本机。需要外网访问时，使用 HTTPS 反向代理和访问控制；可通过 `OW_SERVER_API_KEY` 配置访问码，在评分页输入或在 API 请求携带 `X-API-Key`。账号令牌只写在本机或服务器的环境变量中。
+
+## Linux / macOS
+
+安装 Python 3.11+，执行 `bash start_api.sh`；停止使用 `bash stop_api.sh`。图片识别另需 Tesseract 与 `chi_sim`、`eng` 语言包。也可以直接输入 BattleTag。
+
+## 评分与接口
+
+上下等马只在本次查询名单内相对区分，不代表绝对水平。评分使用个人最后一击占团队总数的真实百分比；Fleta 仅表示该占比的两倍。胜率展示作参考，不直接加减分。
+
+使用说明和接口见 [BATCH_RATING.md](BATCH_RATING.md)，服务启动后也可打开 `/docs`。批量评分任务暂存内存一小时，服务使用单进程运行。
+
+```sh
+python -m unittest discover -s tests -v
+node --check api_server/static/batch_rating.js
+```
+
+GitHub Actions 会检查评分与查询逻辑，并构建、启动 Docker 镜像。GitHub 仓库存放完整代码；运行查询服务需要 Python 或 Docker，GitHub Pages 无法运行此后端。
+
+## 文件与授权
+
+`.env`、账号配置、绑定信息、战绩数据库、日志、截图和查询报告均不应提交。运行缓存会自动创建，无需从他人电脑复制。
+
+本项目沿用原仓库的 [GPL-3.0 许可证](LICENSE)。守望先锋相关名称与图像属于其权利人，战绩查询依赖网易大神的可访问接口和账号授权。

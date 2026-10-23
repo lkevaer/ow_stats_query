@@ -1,0 +1,178 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  background: $color-bg-page;
+  padding-bottom: 120rpx;
+}
+
+.searchSection {
+  padding: $spacing-lg $page-padding $spacing-md;
+}
+
+.tabBar {
+  display: flex;
+  padding: 0 $page-padding $spacing-md;
+  gap: $spacing-sm;
+
+  .tab {
+    @include button-reset;
+    flex: 1;
+    height: $button-height-sm;
+    background: $color-bg-card;
+    border: 1px solid $color-border;
+    border-radius: $radius-button;
+    font-size: $font-size-sm;
+    color: $color-text-secondary;
+
+    &.active {
+      background: rgba($color-primary, 0.15);
+      border-color: $color-primary;
+      color: $color-primary;
+    }
+  }
+}
+
+.inputSection {
+  padding: 0 $page-padding $spacing-md;
+
+  .inputWrap {
+    display: flex;
+    align-items: center;
+    gap: $spacing-sm;
+    background: $color-bg-card;
+    border-radius: $radius-md;
+    border: 1px solid $color-border;
+    padding: $spacing-sm $spacing-md;
+
+    .label {
+      font-size: $font-size-sm;
+      color: $color-text-secondary;
+    }
+
+    .input {
+      flex: 1;
+      text-align: center;
+      font-size: $font-size-md;
+      color: $color-text-primary;
+    }
+  }
+}
+
+.actionButton {
+  padding: 0 $page-padding $spacing-lg;
+
+  .button {
+    @include button-reset;
+    width: 100%;
+    height: $button-height-lg;
+    background: linear-gradient(135deg, $color-primary, $color-primary-dark);
+    color: #121212;
+    font-weight: $font-weight-semibold;
+    font-size: $font-size-md;
+    border-radius: $radius-button;
+
+    &:active {
+      opacity: 0.9;
+      transform: scale(0.99);
+    }
+
+    &[disabled] {
+      opacity: 0.5;
+    }
+  }
+}
+
+.progressSection {
+  padding: $spacing-xl;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $spacing-md;
+
+  .progressBar {
+    width: 100%;
+    height: 16rpx;
+    background: $color-bg-card;
+    border-radius: $radius-round;
+    overflow: hidden;
+    border: 1px solid $color-border;
+
+    .fill {
+      height: 100%;
+      background: linear-gradient(90deg, $color-primary, $color-primary-light);
+      border-radius: $radius-round;
+      transition: width $transition-base;
+    }
+  }
+
+  .stage {
+    font-size: $font-size-sm;
+    color: $color-text-secondary;
+  }
+
+  .pct {
+    font-size: $font-size-lg;
+    font-weight: $font-weight-semibold;
+    color: $color-primary;
+  }
+}
+
+.resultSection {
+  padding: 0 $page-padding;
+}
+
+.card {
+  background: $color-bg-card;
+  border-radius: $radius-md;
+  border: 1px solid $color-border;
+  overflow: hidden;
+  margin-bottom: $spacing-md;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: $spacing-md;
+  border-bottom: 1px solid $color-border;
+
+  .title {
+    font-size: $font-size-md;
+    font-weight: $font-weight-medium;
+    color: $color-text-primary;
+  }
+}
+
+.cardBody {
+  padding: $spacing-md;
+}
+
+.textResult {
+  background: $color-bg-input;
+  padding: $spacing-md;
+  border-radius: $radius-sm;
+  font-size: $font-size-sm;
+  color: $color-text-primary;
+  white-space: pre-wrap;
+  line-height: $line-height-loose;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-xl * 2;
+  gap: $spacing-md;
+
+  .icon {
+    font-size: 80rpx;
+    opacity: 0.5;
+  }
+
+  .text {
+    font-size: $font-size-sm;
+    color: $color-text-tertiary;
+  }
+}

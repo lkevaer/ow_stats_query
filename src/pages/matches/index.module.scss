@@ -1,0 +1,144 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  background: $color-bg-page;
+  padding-bottom: 120rpx;
+}
+
+.searchSection {
+  padding: $spacing-lg $page-padding $spacing-md;
+}
+
+.filterBar {
+  display: flex;
+  gap: $spacing-sm;
+  padding: 0 $page-padding $spacing-md;
+
+  .filterItem {
+    @include button-reset;
+    flex: 1;
+    height: $button-height-sm;
+    background: $color-bg-card;
+    border: 1px solid $color-border;
+    border-radius: $radius-button;
+    font-size: $font-size-sm;
+    color: $color-text-secondary;
+
+    &.active {
+      background: rgba($color-primary, 0.15);
+      border-color: $color-primary;
+      color: $color-primary;
+    }
+
+    &:active {
+      opacity: 0.8;
+    }
+  }
+}
+
+.matchList {
+  padding: 0 $page-padding;
+}
+
+.matchItem {
+  display: flex;
+  align-items: center;
+  padding: $spacing-md;
+  background: $color-bg-card;
+  border-radius: $radius-md;
+  border: 1px solid $color-border;
+  margin-bottom: $spacing-sm;
+  transition: all $transition-fast;
+
+  &:active {
+    background: $color-bg-card-hover;
+  }
+
+  .result {
+    width: 80rpx;
+    height: 80rpx;
+    border-radius: $radius-round;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36rpx;
+    margin-right: $spacing-md;
+
+    &.win {
+      background: rgba($color-success, 0.15);
+    }
+
+    &.lose {
+      background: rgba($color-error, 0.15);
+    }
+  }
+
+  .info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4rpx;
+
+    .hero {
+      font-size: $font-size-md;
+      font-weight: $font-weight-medium;
+      color: $color-text-primary;
+    }
+
+    .meta {
+      font-size: $font-size-xs;
+      color: $color-text-tertiary;
+    }
+  }
+
+  .arrow {
+    font-size: $font-size-lg;
+    color: $color-text-tertiary;
+  }
+}
+
+.resultCard {
+  background: $color-bg-card;
+  border-radius: $radius-md;
+  border: 1px solid $color-border;
+  overflow: hidden;
+  margin: 0 $page-padding $spacing-md;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: $spacing-md;
+  border-bottom: 1px solid $color-border;
+
+  .title {
+    font-size: $font-size-md;
+    font-weight: $font-weight-medium;
+    color: $color-text-primary;
+  }
+}
+
+.cardBody {
+  padding: $spacing-md;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-xl * 2;
+  gap: $spacing-md;
+
+  .icon {
+    font-size: 80rpx;
+    opacity: 0.5;
+  }
+
+  .text {
+    font-size: $font-size-sm;
+    color: $color-text-tertiary;
+  }
+}

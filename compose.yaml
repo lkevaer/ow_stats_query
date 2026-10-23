@@ -1,0 +1,13 @@
+services:
+  ow-stats:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:41888:8080"
+    env_file: .env
+    volumes:
+      - ow-data:/app/data
+      - ow-bindings:/app/api_server/data
+volumes:
+  ow-data:
+  ow-bindings:

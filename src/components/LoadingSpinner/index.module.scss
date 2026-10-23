@@ -1,0 +1,45 @@
+@use '@/styles/variables.scss' as *;
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-xl;
+  gap: $spacing-md;
+}
+
+.spinner {
+  border-radius: 50%;
+  border: 3px solid $color-border;
+  border-top-color: $color-primary;
+  animation: spin 1s linear infinite;
+
+  &.small {
+    width: 32rpx;
+    height: 32rpx;
+    border-width: 2px;
+  }
+
+  &.medium {
+    width: 48rpx;
+    height: 48rpx;
+  }
+
+  &.large {
+    width: 64rpx;
+    height: 64rpx;
+    border-width: 4px;
+  }
+}
+
+.text {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

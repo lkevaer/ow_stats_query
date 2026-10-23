@@ -1,0 +1,222 @@
+@use '@/styles/variables.scss' as *;
+
+.page {
+  min-height: 100vh;
+  background: $color-bg-page;
+  padding-bottom: 120rpx;
+}
+
+.userCard {
+  margin: $spacing-lg $page-padding;
+  padding: $spacing-lg;
+  background: linear-gradient(135deg, rgba($color-primary, 0.2), rgba($color-primary, 0.05));
+  border-radius: $radius-lg;
+  border: 1px solid rgba($color-primary, 0.3);
+
+  .avatarRow {
+    display: flex;
+    align-items: center;
+    gap: $spacing-md;
+    margin-bottom: $spacing-md;
+
+    .avatar {
+      width: 120rpx;
+      height: 120rpx;
+      border-radius: $radius-round;
+      background: $color-bg-card;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 56rpx;
+    }
+
+    .info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 4rpx;
+
+      .name {
+        font-size: $font-size-lg;
+        font-weight: $font-weight-semibold;
+        color: $color-text-primary;
+      }
+
+      .token {
+        font-size: $font-size-xs;
+        color: $color-text-tertiary;
+        font-family: monospace;
+      }
+    }
+  }
+
+  .bindingInfo {
+    padding: $spacing-md;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: $radius-md;
+
+    .title {
+      font-size: $font-size-sm;
+      color: $color-text-secondary;
+      margin-bottom: $spacing-xs;
+    }
+
+    .value {
+      font-size: $font-size-md;
+      color: $color-text-primary;
+      font-weight: $font-weight-medium;
+    }
+  }
+}
+
+.section {
+  margin: $spacing-lg $page-padding;
+
+  .title {
+    font-size: $font-size-md;
+    font-weight: $font-weight-medium;
+    color: $color-text-primary;
+    margin-bottom: $spacing-md;
+    padding-left: $spacing-sm;
+  }
+
+  .list {
+    background: $color-bg-card;
+    border-radius: $radius-md;
+    border: 1px solid $color-border;
+    overflow: hidden;
+
+    .item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: $spacing-md;
+      border-bottom: 1px solid $color-border;
+
+      &:last-child {
+        border-bottom: none;
+      }
+
+      &:active {
+        background: $color-bg-card-hover;
+      }
+
+      .left {
+        display: flex;
+        align-items: center;
+        gap: $spacing-md;
+
+        .icon {
+          font-size: $font-size-xl;
+        }
+
+        .text {
+          font-size: $font-size-md;
+          color: $color-text-primary;
+        }
+      }
+
+      .right {
+        display: flex;
+        align-items: center;
+        gap: $spacing-xs;
+
+        .value {
+          font-size: $font-size-sm;
+          color: $color-text-tertiary;
+        }
+
+        .arrow {
+          font-size: $font-size-lg;
+          color: $color-text-tertiary;
+        }
+      }
+    }
+  }
+}
+
+.bindSection {
+  margin: $spacing-lg $page-padding;
+  padding: $spacing-md;
+  background: $color-bg-card;
+  border-radius: $radius-md;
+  border: 1px solid $color-border;
+
+  .title {
+    font-size: $font-size-md;
+    font-weight: $font-weight-medium;
+    color: $color-text-primary;
+    margin-bottom: $spacing-md;
+  }
+
+  .inputWrap {
+    display: flex;
+    gap: $spacing-sm;
+    margin-bottom: $spacing-md;
+
+    .input {
+      flex: 1;
+      height: $button-height-md;
+      padding: 0 $spacing-md;
+      background: $color-bg-input;
+      border: 1px solid $color-border;
+      border-radius: $radius-md;
+      font-size: $font-size-md;
+      color: $color-text-primary;
+    }
+  }
+
+  .button {
+    @include button-reset;
+    width: 100%;
+    height: $button-height-md;
+    background: linear-gradient(135deg, $color-primary, $color-primary-dark);
+    color: #121212;
+    font-weight: $font-weight-semibold;
+    font-size: $font-size-md;
+    border-radius: $radius-button;
+
+    &:active {
+      opacity: 0.9;
+    }
+
+    &[disabled] {
+      opacity: 0.5;
+    }
+  }
+
+  .unbindButton {
+    @include button-reset;
+    width: 100%;
+    height: $button-height-md;
+    background: transparent;
+    border: 1px solid $color-error;
+    color: $color-error;
+    font-size: $font-size-md;
+    border-radius: $radius-button;
+    margin-top: $spacing-sm;
+
+    &:active {
+      background: rgba($color-error, 0.1);
+    }
+  }
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-xl * 2;
+  gap: $spacing-md;
+
+  .icon {
+    font-size: 80rpx;
+    opacity: 0.5;
+  }
+
+  .text {
+    font-size: $font-size-sm;
+    color: $color-text-tertiary;
+  }
+}
