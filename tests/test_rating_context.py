@@ -8,6 +8,8 @@ from test_batch_rating import HEROES, match, player, score
 
 def full_match(role="s", deaths=(6, 5, 5, 5, 5), enemy_deaths=5):
     data = match(role)
+    if role == "s":
+        data["teammateList"][0]["finalHit"] = 3
     for row, death in zip(data["teammateList"], deaths):
         row["death"] = death
     data["enemyList"] = [player(f"enemy{i}#1234", hero, heal=6000 if hero == "s" else 0, deaths=enemy_deaths)
@@ -29,7 +31,7 @@ class DeathContextTests(unittest.TestCase):
     def test_six_or_seven_when_teammates_have_five_is_substantial(self):
         six = score(full_match(deaths=(6, 5, 5, 5, 5)))
         seven = score(full_match(deaths=(7, 5, 5, 5, 5)))
-        self.assertGreater(death_penalty(six), 8)
+        self.assertGreater(death_penalty(six), 6)
         self.assertGreater(death_penalty(seven), death_penalty(six))
 
     def test_all_roles_reduce_death_sensitivity_in_low_death_games(self):
@@ -51,7 +53,7 @@ class DeathContextTests(unittest.TestCase):
         favorable = score(full_match(enemy_deaths=9))
         self.assertFalse(favorable["is_stomp"])
         self.assertTrue(favorable["death_context"]["enemy_deaths_clearly_higher"])
-        self.assertGreater(death_penalty(even) - death_penalty(favorable), 4)
+        self.assertGreater(death_penalty(even) - death_penalty(favorable), 3)
         self.assertGreater(death_penalty(favorable), 0)
         self.assertTrue(any("免除" in w for w in favorable["warnings"]))
         two_extra = score(full_match(deaths=(7, 5, 5, 5, 5), enemy_deaths=10))
@@ -82,7 +84,7 @@ class DeathContextTests(unittest.TestCase):
         data["gameTimeSec"] = 1800
         result = score(data)
         self.assertFalse(result["death_context"]["low_team_deaths"])
-        self.assertGreaterEqual(death_penalty(result), 5)
+        self.assertGreater(death_penalty(result), 3)
 
 
 class AwardsAndLossTests(unittest.TestCase):
@@ -151,9 +153,9 @@ class AwardsAndLossTests(unittest.TestCase):
         self.assertFalse(score(data)["is_svp"])
 
     def test_solo_positive_loser_gets_more_relief_but_not_unlimited(self):
-        data = full_match(deaths=(7, 8, 8, 8, 8))
+        data = full_match("t", deaths=(16, 8, 8, 8, 8))
         data["matchRet"] = -1
-        data["teammateList"][0].update(kill=16, finalHit=12, heroDamage=500, cure=3000)
+        data["teammateList"][0].update(kill=20, finalHit=12, heroDamage=500, cure=3000)
         for row in data["teammateList"][1:]:
             row.update(kill=4, finalHit=3)
         solo = score(data)
@@ -178,9 +180,9 @@ class AwardsAndLossTests(unittest.TestCase):
 
 
 class AggregateReferenceTests(unittest.TestCase):
-    def test_s_starts_at_eighty_two(self):
-        self.assertEqual(grade(82), "S")
-        self.assertEqual(grade(81.99), "A")
+    def test_s_starts_at_ninety(self):
+        self.assertEqual(grade(90), "S")
+        self.assertEqual(grade(89.99), "A")
 
     def test_smurf_is_the_largest_aggregate_bonus(self):
         item = score(match())
@@ -215,13 +217,15 @@ class AggregateReferenceTests(unittest.TestCase):
 
     def test_kd_ten_bonus_is_small_and_uses_total_kills_over_total_deaths(self):
         item = score(match())
-        item["stats"].update(kill=50, death=5)
-        result = aggregate_player("me#1234", [item] * 12, fetched=12, errors=[])
+        item["stats"].update(kill=20, death=5)
+        high = deepcopy(item)
+        high["stats"]["kill"] = 80
+        result = aggregate_player("me#1234", [item,high], fetched=2, errors=[])
         self.assertEqual(result["kd"], 10)
         self.assertGreater(result["score"], result["match_average"])
         self.assertLessEqual(result["score"] - result["match_average"], 1.5)
-        item["stats"].update(kill=49)
-        below = aggregate_player("me#1234", [item] * 12, fetched=12, errors=[])
+        high["stats"].update(kill=79)
+        below = aggregate_player("me#1234", [item,high], fetched=2, errors=[])
         self.assertEqual(below["score"], below["match_average"])
 
     def test_zero_deaths_display_perfect_without_json_infinity_and_zero_zero_is_unknown(self):

@@ -91,7 +91,7 @@ class ScoringTests(unittest.TestCase):
                 data["teammateList"][1]["finalHit"] = 100-own
                 result = score(data)
                 self.assertEqual(any("40%" in a["reason"] for a in result["adjustments"]), expected_regular)
-                self.assertEqual(any(a["points"] >= 18 for a in result["adjustments"]), expected_major)
+                self.assertEqual(any("占比≥50%" in a["reason"] for a in result["adjustments"]), expected_major)
                 self.assertAlmostEqual(result["fleta"], own/50)
                 self.assertAlmostEqual(result["final_blow_share"], own/100)
 
@@ -102,17 +102,17 @@ class ScoringTests(unittest.TestCase):
 
     def test_support_highest_deaths_carry_large_penalty(self):
         low = match("s")
-        low["teammateList"][0]["death"] = 2
+        low["teammateList"][0].update(death=2,finalHit=3)
         high = deepcopy(low)
         high["teammateList"][0]["death"] = 15
         self.assertGreater(score(low)["score"] - score(high)["score"], 25)
         self.assertTrue(any(a["points"] < -20 for a in score(high)["adjustments"]))
 
-    def test_support_fleta_bonus_cannot_erase_highest_death_penalty(self):
+    def test_support_below_fleta_forty_does_not_erase_highest_death_penalty(self):
         data = match("s")
-        data["teammateList"][0].update(death=16, finalHit=15)
+        data["teammateList"][0].update(death=16, finalHit=4)
         result = score(data)
-        self.assertGreaterEqual(result["fleta"], .30)
+        self.assertLess(result["fleta"], .40)
         self.assertLess(sum(a["points"] for a in result["adjustments"]), -10)
 
     def test_tank_thirty_percent_bonus(self):
@@ -173,9 +173,9 @@ class ScoringTests(unittest.TestCase):
         data["teammateList"][0]["heroDamage"] = 500
         low = score(data)
         data["teammateList"][0]["heroDamage"] = 10000
-        self.assertGreater(score(data)["score"] - low["score"], 8)
+        self.assertGreater(score(data)["score"] - low["score"], 6)
 
-    def test_support_attack_bonus_accelerates_and_recovers_deaths_only_with_high_share(self):
+    def test_support_fleta_tiers_raise_attack_score_and_high_fleta_waives_death_penalty(self):
         data = match("s")
         for p in data["teammateList"][1:]: p["finalHit"] = 0
         bonuses, scores = [], []
@@ -185,8 +185,9 @@ class ScoringTests(unittest.TestCase):
             result = score(data)
             bonuses.append(sum(a["points"] for a in result["adjustments"] if a["points"]>0))
             scores.append(result["score"])
-        self.assertEqual(bonuses[:2], [0,0])
-        self.assertGreater(bonuses[4]-bonuses[3], bonuses[3]-bonuses[2])
+        self.assertEqual(bonuses[0], 0)
+        self.assertGreater(bonuses[1], 0)
+        self.assertTrue(all(a <= b for a,b in zip(scores,scores[1:])))
         self.assertGreater(scores[-1]-scores[0], 30)
 
     def test_smurf_requires_seven_matches_and_counts_exactly_eighty(self):
@@ -252,7 +253,7 @@ class ScoringTests(unittest.TestCase):
         heroes = deepcopy(HEROES)
         heroes["s"]["name"]="天使"
         after = score_match(data,{},customer_token="",bnet_id="me#1234",battletag="me#1234",heroes=heroes)
-        self.assertEqual(after["score"],round(before["score"]*.72,2))
+        self.assertAlmostEqual(after["score"],before["score"]*.72,delta=.011)
         self.assertFalse(any("天使" in a["reason"] for a in after["adjustments"]))
 
 

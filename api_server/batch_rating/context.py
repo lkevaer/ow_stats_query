@@ -68,6 +68,33 @@ def kd_stats(kills: float | None, deaths: float | None) -> dict:
             "kd_perfect": deaths == 0 and kills > 0}
 
 
+def duration_weight(seconds: float) -> float:
+    if seconds < 180:
+        return .70 * seconds / 180
+    if seconds < 390:
+        return .70 + .30 * (seconds - 180) / 210
+    if seconds > 900:
+        return min(1.10, 1. + (seconds - 900) / 600 * .10)
+    return 1.
+
+
+def match_weights(team: list[dict], opponents: list[dict], seconds: float, stomp: float) -> dict:
+    totals = []
+    complete = len(team) == len(opponents) and len(team) >= 3
+    for players in (team, opponents):
+        values = [numeric(p, "finalHit") for p in players]
+        totals.append(sum(values) if values and all(v is not None for v in values) else None)
+    ratio = min(totals) / max(totals) if complete and all(v is not None for v in totals) and max(totals) > 0 else None
+    balanced = bool(ratio is not None and ratio >= .90 and min(totals) >= 10)
+    balance = 1.35 if balanced else 1.
+    duration = duration_weight(seconds)
+    return {"duration_weight": round(duration, 4), "balance_weight": balance,
+            "sample_weight": round(duration * balance * stomp, 4),
+            "balanced_final_blows": balanced, "final_blow_balance": round(ratio, 6) if ratio is not None else None,
+            "opponent_final_blows": totals[1] if complete else None,
+            "short_match": seconds < 390, "long_match": seconds > 900}
+
+
 def party_info(own: dict, team: list[dict]) -> dict:
     """Use the upstream friendBnetIds party links, restricted to this game's team."""
     def identifier(value):

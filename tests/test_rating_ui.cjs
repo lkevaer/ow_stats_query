@@ -81,3 +81,33 @@ test('KD, new SMURF threshold and aggregate reference corrections appear in deta
   assert.match(html,/SMURF专项加分/);
   assert.doesNotMatch(html,/Fleta≥100%/);
 });
+
+test('all five numeric grades use their own subtle color class',()=>{
+  const {context}=ui();
+  for(const grade of ['S','A','B','C','D']){
+    assert.match(context.scoreMarkup({score:80,grade}),new RegExp('grade-'+grade.toLowerCase()));
+  }
+  const smurf=context.scoreMarkup({score:95,grade:'SMURF',score_grade:'S',is_smurf:true});
+  assert.match(smurf,/grade-s/);
+  assert.match(smurf,/SMURF/);
+});
+
+test('hot streak appears alongside the win rate in overview and detail header',()=>{
+  const {context,element}=ui();
+  const hot={...player,hot_streak:true,wins:10,losses:2,win_rate:10/12};
+  context.render({mode:'competitive',mode_label:'竞技',summary:{requested_players:1,complete_players:1,rated_matches:12},players:[hot]});
+  assert.match(element('rankings').innerHTML,/83\.3%.*手感火热/);
+  assert.match(element('details').innerHTML,/手感火热/);
+  assert.equal(context.hotBadge({...hot,hot_streak:false}),'');
+});
+
+test('compact match table retains all statistics while using only nine columns',()=>{
+  const {context}=ui();
+  const html=context.matchRow({...match,stats:{kill:20,assist:8,death:3,heroDamage:6000,cure:2000,finalHit:10},kd:20/3,team_final_blows:30,opponent_final_blows:31,balanced_final_blows:true,long_match:true});
+  assert.equal((html.match(/<td(?:\s[^>]*)?>/g)||[]).length,9);
+  assert.match(html,/本场记录段位|测试/);
+  for(const text of ['击杀','助攻','阵亡','KD','伤害','治疗','双方最后一击','长局增权','接近']) assert.ok(html.includes(text),text);
+  const detailed=context.playerDetails(player,true);
+  assert.equal((detailed.match(/<th>/g)||[]).length,9);
+  assert.match(detailed,/colgroup/);
+});

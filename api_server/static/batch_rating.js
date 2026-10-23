@@ -43,7 +43,10 @@ function signed(value) { return (value>0?'+':'')+number(value); }
 function severity(value) { const level=Math.abs(value)>=12?3:Math.abs(value)>=4?2:1;return value>0?'pos'+level:value<0?'neg'+level:'zero'; }
 function delta(value,label='') { return '<span class="delta '+severity(value)+'">'+signed(value)+(label?' '+escapeHtml(label):'')+'</span>'; }
 function tierPill(player) { return '<span class="pill '+(player.tier==='上等马'?'upper':player.tier==='下等马'?'lower':'middle')+'">'+escapeHtml(player.tier)+'</span>'; }
-function gradeBadge(player) { return player.is_smurf?'<span class="pill smurf">SMURF</span>':'<span class="badge">'+escapeHtml(player.grade||'')+'</span>'; }
+function gradeTone(grade) { return ['S','A','B','C','D'].includes(grade)?'grade-'+grade.toLowerCase():'grade-unknown'; }
+function gradeBadge(player) { const label=player.score_grade||player.grade;return '<span class="grade-letter">'+escapeHtml(label||'')+'</span>'; }
+function scoreMarkup(row,large=false) { return '<span class="rating-score '+gradeTone(row.score_grade||row.grade)+(large?' large':'')+'"><strong>'+number(row.score,2)+'</strong>'+gradeBadge(row)+'</span>'+(row.is_smurf?' <span class="pill smurf">SMURF</span>':''); }
+function hotBadge(player) { return player.hot_streak?'<span class="hot-badge" title="完整近12场至少10胜，已提高胜率加分权重">手感火热</span>':''; }
 function asset(url,name,kind) {
   const image=typeof url==='string'&&url.startsWith('https://')?'<img class="'+kind+'" src="'+escapeHtml(url)+'" alt="'+escapeHtml(name)+'" loading="lazy" referrerpolicy="no-referrer" onerror="this.hidden=true">':'';
   return '<span class="asset">'+image+'<span>'+escapeHtml(name)+'</span></span>';
@@ -64,12 +67,18 @@ function matchAwards(match) {
 }
 function highlightClass(match) { return match.is_mvp?'highlight-mvp':match.is_svp?'highlight-svp':match.is_carry?'highlight-carry':''; }
 function partyBadge(party) { return '<span class="pill party" title="依据当局组队成员记录">'+escapeHtml(party?.known?party.label:'组队未知')+'</span>'; }
-function statCell(match,key,field,per10=false) {
+function statValue(match,key,field,per10=false) {
   const component=match.metrics[key], raw=match.stats?.[field]??component?.value;
   const value=per10&&raw!=null?raw*600/match.seconds:raw;
   const reference=component?component[per10?'reference_per10':'reference']:null;
   const title=component?component.comparison+'：'+number(reference)+(per10?'/10分':''):'';
-  return '<td title="'+escapeHtml(title)+'">'+number(value,per10?0:0)+(component?'<br>'+delta(component.contribution):'')+'</td>';
+  return '<span class="metric-reading" title="'+escapeHtml(title)+'"><strong>'+number(value,0)+'</strong>'+(component?delta(component.contribution):'')+'</span>';
+}
+function weightNotes(match) {
+  return (match.short_match?'<span class="cell-note">短局降权</span>':'')+
+    (match.long_match?'<span class="cell-note">长局增权</span>':'')+
+    (match.balanced_final_blows?'<span class="cell-note">双方最后一击接近 · 增权</span>':'')+
+    (match.is_stomp?'<span class="pill discount" title="'+escapeHtml(match.stomp_reason)+'">碾压降权</span>':'');
 }
 function matchRow(match,competitive=false) {
   let ts=Number(match.begin_ts);if(ts<1e12)ts*=1000;
@@ -77,26 +86,23 @@ function matchRow(match,competitive=false) {
   const outcomeClass=match.outcome_label==='胜'?'outcome-win':match.outcome_label==='负'?'outcome-loss':'';
   const reasons=match.adjustments.map(a=>delta(a.points,a.reason)).join('<br>')||'<span class="muted">无额外加减分</span>';
   return `<tr class="${highlightClass(match)}"><td>${stamp}<span class="cell-note">${number(match.seconds/60)}分钟 · ${match.team_size}人队</span>${matchAwards(match)}${partyBadge(match.party)}</td>
-    <td>${asset(match.hero_icon,match.hero,'avatar')}<span class="cell-note">${escapeHtml(roleNames[match.role]||match.role_label)}</span></td>
-    ${competitive?'<td>'+rankBadge(match.rank)+'</td>':''}
-    <td>${asset(match.map_icon,match.map_name,'map-icon')}</td><td class="${outcomeClass}">${outcomeBadge(match)}</td>
-    <td><strong>${number(match.score,2)}</strong> ${escapeHtml(match.grade)}</td>
-    <td>${pct(match.final_blow_share)}<span class="cell-note">${number(match.stats?.finalHit??match.metrics.final_blows?.value,0)}/${number(match.team_final_blows,0)}</span></td>
-    <td>${pct(match.fleta)}</td>
-    ${statCell(match,'eliminations','kill')}${statCell(match,'assists','assist')}${statCell(match,'survival','death')}
-    <td title="击杀 / 阵亡；有击杀且零阵亡显示∞">${kdLabel(match)}</td>
-    ${statCell(match,'damage','heroDamage',true)}${statCell(match,'healing','cure',true)}
-    <td>${pct(match.sample_weight)}${match.is_stomp?'<br><span class="pill discount" title="'+escapeHtml(match.stomp_reason)+'">碾压降权</span>':''}${match.duration_weight<1?'<span class="cell-note">短局降权</span>':''}</td>
+    <td>${asset(match.hero_icon,match.hero,'avatar')}<span class="cell-note">${escapeHtml(roleNames[match.role]||match.role_label)}</span>${competitive?'<div class="match-rank"><span class="cell-note">本场记录段位</span>'+rankBadge(match.rank)+'</div>':''}</td>
+    <td>${asset(match.map_icon,match.map_name,'map-icon')}<span class="cell-note ${outcomeClass}">${outcomeBadge(match)}</span></td>
+    <td>${scoreMarkup(match)}</td>
+    <td><strong>F ${pct(match.fleta)}</strong><span class="cell-note">最后一击占比 ${pct(match.final_blow_share)}</span><span class="cell-note">个人 / 全队：${number(match.stats?.finalHit??match.metrics.final_blows?.value,0)} / ${number(match.team_final_blows,0)}</span></td>
+    <td><div class="kda-grid"><div><span class="cell-note">击杀</span>${statValue(match,'eliminations','kill')}</div><div><span class="cell-note">助攻</span>${statValue(match,'assists','assist')}</div><div><span class="cell-note">阵亡</span>${statValue(match,'survival','death')}</div></div><span class="cell-note" title="击杀 / 阵亡；有击杀且零阵亡显示∞">KD ${kdLabel(match)}</span></td>
+    <td><div class="output-stat"><span class="muted">伤害</span>${statValue(match,'damage','heroDamage',true)}</div><div class="output-stat"><span class="muted">治疗</span>${statValue(match,'healing','cure',true)}</div><span class="cell-note">每10分钟</span></td>
+    <td><strong>${pct(match.sample_weight)}</strong>${weightNotes(match)}<span class="cell-note">双方最后一击：${number(match.team_final_blows,0)} / ${number(match.opponent_final_blows,0)}</span></td>
     <td class="reasons">${reasons}${match.warnings?.length?'<br><span class="muted">'+match.warnings.map(escapeHtml).join('<br>')+'</span>':''}</td></tr>`;
 }
 function playerDetails(player,competitive=false) {
   const sample=escapeHtml(player.sample_note||'');
-  const totals=player.averages?`<div class="detail-head"><span class="pill">${player.wins}胜${player.losses}负${player.draws}平 · 胜率${pct(player.win_rate)}</span><span class="pill">Fleta≥80%：${player.smurf_matches}/12场 · 7场为SMURF</span><span class="pill">KD ${kdLabel(player)}</span><span class="pill">MVP ${player.mvp_matches??0} · CARRY ${player.carry_matches??0} · SVP ${player.svp_matches??0}</span><span class="pill">碾压${player.stomp_matches}场 · 有效权重${number(player.effective_matches)}场</span><span class="muted">每10分钟：伤害 ${number(player.averages.damage_per10,0)} · 最后一击 ${number(player.averages.final_blows_per10)} · 阵亡 ${number(player.averages.survival_per10)} · 治疗 ${number(player.averages.healing_per10,0)}</span></div>`:'';
+  const totals=player.averages?`<div class="detail-head"><span class="pill">${player.wins}胜${player.losses}负${player.draws}平 · 胜率${pct(player.win_rate)}</span>${hotBadge(player)}<span class="pill">Fleta≥80%：${player.smurf_matches}/12场 · 7场为SMURF</span><span class="pill">KD ${kdLabel(player)} · KD≥7：${player.high_kd_matches??0}/12场</span><span class="pill">MVP ${player.mvp_matches??0} · CARRY ${player.carry_matches??0} · SVP ${player.svp_matches??0}</span><span class="pill">短局${player.short_matches??0} · 长局${player.long_matches??0} · 最后一击接近${player.balanced_matches??0} · 碾压${player.stomp_matches??0} · 权重合计${number(player.effective_matches)}</span><span class="muted">每10分钟：伤害 ${number(player.averages.damage_per10,0)} · 最后一击 ${number(player.averages.final_blows_per10)} · 阵亡 ${number(player.averages.survival_per10)} · 治疗 ${number(player.averages.healing_per10,0)}</span></div>`:'';
   const corrections=(player.summary_adjustments||[]).map(a=>delta(a.points,a.reason)).join(' ');
   const scoring=player.match_average==null?'':`<p class="note">对局加权均分 ${number(player.match_average,2)}${corrections?' · 综合参考修正：'+corrections:''}</p>`;
   const rows=player.matches.map(match=>matchRow(match,competitive)).join('');
   const errors=player.errors?.length?'<p class="note">未计分：'+player.errors.map(e=>escapeHtml(e.match_id)+' '+escapeHtml(e.error)).join('<br>')+'</p>':'';
-  return `<details><summary>${escapeHtml(player.battletag)} · ${number(player.score)} ${gradeBadge(player)} · ${player.rated_matches}场</summary><p class="note">${sample}</p>${totals}${scoring}<div class="scroll"><table class="metrics"><thead><tr><th>时间 / 时长 / 组队</th><th>英雄 / 位置</th>${competitive?'<th>本场记录段位</th>':''}<th>地图</th><th>胜负</th><th>评分</th><th>最后一击占比</th><th>Fleta</th><th>击杀</th><th>助攻</th><th>阵亡</th><th>KD</th><th>伤害/10分</th><th>治疗/10分</th><th>本场权重</th><th>额外加减分</th></tr></thead><tbody>${rows}</tbody></table></div>${errors}</details>`;
+  return `<details><summary><span class="player-name">${escapeHtml(player.battletag)}</span> · ${scoreMarkup(player)} · ${player.rated_matches}场</summary><p class="note">${sample}</p>${totals}${scoring}<div class="scroll"><table class="metrics"><colgroup><col class="col-match"><col class="col-hero"><col class="col-map"><col class="col-score"><col class="col-fleta"><col class="col-kda"><col class="col-output"><col class="col-weight"><col class="col-notes"></colgroup><thead><tr><th>对局 / 时长 / 组队</th><th>英雄 / 位置${competitive?' / 段位':''}</th><th>地图 / 胜负</th><th>评分 / 等级</th><th>Fleta / 最后一击</th><th>击杀 / 助攻 / 阵亡</th><th>伤害 / 治疗</th><th>本场权重</th><th>加减分参考</th></tr></thead><tbody>${rows}</tbody></table></div>${errors}</details>`;
 }
 function render(report) {
   currentReport=report;$('horseSummary').value=report.summary_text||'';$('results').classList.remove('hidden');
@@ -105,7 +111,7 @@ function render(report) {
   const summary=report.summary;
   $('summary').textContent=summary.requested_players+'位玩家 · '+summary.complete_players+'位满12场 · 共'+summary.rated_matches+'场有效对局';
   $('relativeNotice').textContent=report.relative_notice||'上下等马仅在本次查询名单内相对区分；相对评分不代表绝对水平。名单段位差距过大时，上下等马评级没有比较意义。';
-  $('rankings').innerHTML=report.players.map(p=>`<tr><td>${p.rank??'—'}</td><td class="tag">${escapeHtml(p.battletag)}${p.status==='partial'?'<span class="cell-note">样本不足，暂定</span>':''}</td><td>${tierPill(p)}</td><td><span class="score">${number(p.score,2)}</span> ${gradeBadge(p)}</td><td>${p.rated_matches}/12<span class="cell-note">${pct(p.confidence)}完整</span></td><td>${escapeHtml(roleNames[p.primary_role]||'—')}</td>${competitive?'<td>'+rankBadge(p.latest_rank)+(p.latest_rank?.known?'<span class="cell-note">'+escapeHtml(p.latest_rank.role_label)+' · 最近可见记录</span>':'')+'</td>':''}<td>${pct(p.win_rate)}<span class="cell-note">${p.wins??0}胜${p.losses??0}负${p.draws??0}平</span></td><td>${kdLabel(p)}</td><td>${pct(p.final_blow_share)}</td><td>${pct(p.fleta)}<span class="cell-note">≥80%：${p.smurf_matches??0}场</span></td><td>${number(p.averages?.damage_per10,0)}</td><td>${number(p.averages?.survival_per10)}</td><td>${p.stomp_matches??0}场</td></tr>`).join('');
+  $('rankings').innerHTML=report.players.map(p=>`<tr><td>${p.rank??'—'}</td><td class="tag">${escapeHtml(p.battletag).replace('#','<wbr>#')}${p.status==='partial'?'<span class="cell-note">样本不足，暂定</span>':''}</td><td>${tierPill(p)}</td><td>${scoreMarkup(p,true)}</td><td>${p.rated_matches}/12<span class="cell-note">${pct(p.confidence)}完整</span></td><td>${escapeHtml(roleNames[p.primary_role]||'—')}</td>${competitive?'<td>'+rankBadge(p.latest_rank)+(p.latest_rank?.known?'<span class="cell-note">'+escapeHtml(p.latest_rank.role_label)+' · 最近可见记录</span>':'')+'</td>':''}<td>${pct(p.win_rate)}<span class="cell-note">${p.wins??0}胜${p.losses??0}负${p.draws??0}平</span>${hotBadge(p)}</td><td>${kdLabel(p)}<span class="cell-note">≥7：${p.high_kd_matches??0}/12场</span></td><td>${pct(p.final_blow_share)}</td><td>${pct(p.fleta)}<span class="cell-note">≥80%：${p.smurf_matches??0}场</span></td><td>${number(p.averages?.damage_per10,0)}</td><td>${number(p.averages?.survival_per10)}</td><td>${p.stomp_matches??0}场</td></tr>`).join('');
   $('details').innerHTML=report.players.map(player=>playerDetails(player,competitive)).join('');
 }
 $('copySummary').onclick=async()=>{try{await navigator.clipboard.writeText($('horseSummary').value);$('copySummary').textContent='已复制';setTimeout(()=>$('copySummary').textContent='复制简短文本',1500);}catch{$('horseSummary').focus();$('horseSummary').select();status('请选择并复制分档文字。');}};
