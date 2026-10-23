@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Body, HTTPException, Request
 
 from ..app_context import AppState
+from ..query_audit import record_successful_ids
 from ..db.task_db import (
     cleanup_expired_tasks,
     create_task as db_create_task,
@@ -69,6 +70,8 @@ async def _run_task(task_id: str, endpoint: str, params: Dict[str, Any], state: 
             resolved = ResolvedTarget(token="", battletag="", bnet_id="", customer_token="", display_name="", source="inline")
 
         result = await handler(params, state, resolved, _send)
+        if need_account and isinstance(result, dict) and result.get("success") is True:
+            await record_successful_ids([resolved.battletag, params.get("player2") if endpoint.startswith("/api/sameplay") else None])
         update_task_done(task_id, result)
         logger.info("Task %s completed successfully", task_id)
 

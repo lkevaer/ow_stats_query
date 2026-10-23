@@ -1,7 +1,9 @@
 import asyncio
+import os
+import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import create_autospec
+from unittest.mock import create_autospec, patch
 
 from fastapi.testclient import TestClient
 
@@ -19,6 +21,11 @@ from overstats.src.modules.player_identity_search.service import PlayerIdentityS
 
 class WebQueryTests(unittest.TestCase):
     def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        setting = patch.dict(os.environ, {'OW_QUERY_ID_LOG_FILE': os.path.join(folder.name, 'audit.txt')})
+        setting.start()
+        self.addCleanup(setting.stop)
         self.previous_state = getattr(app.state, 'ow_app', None)
         self.state = AppState(config={'output': {'prefer_image_for_match': False}}, initialized=True)
         app.state.ow_app = self.state

@@ -9,6 +9,7 @@ import time
 from typing import Any
 import uuid
 
+from ..query_audit import record_successful_ids
 from .ocr import normalize_tags, recognize_image
 from .scoring import VERSION, RELATIVE_NOTICE, SCOPE_NOTICE, aggregate_player, grouped_summary, rank_players, score_match
 
@@ -206,6 +207,7 @@ class BatchRatingService:
 
         await asyncio.gather(*(one_player(tag) for tag in tags))
         ranked = rank_players(results)
+        await record_successful_ids(p.get("resolved_battletag") or p["battletag"] for p in ranked if p["score"] is not None)
         return {"mode": mode, "mode_label": MODE_NAMES[mode], "matches_per_player": MATCH_LIMIT,
                 "generated_at": datetime.now().astimezone().isoformat(), "players": ranked, "summary_text": grouped_summary(ranked),
                 "recognized": prepared, "scoring_version": VERSION, "relative_notice": RELATIVE_NOTICE, "scope_notice":SCOPE_NOTICE, "hero_registry_count": len(heroes),

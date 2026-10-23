@@ -28,6 +28,7 @@ from .config_loader import load_config  # noqa: E402
 from .metrics import REGISTRY, render_metrics_text  # noqa: E402
 from .ratelimit import LIMITERS  # noqa: E402
 from .response_utils import error_response  # noqa: E402
+from .query_audit import record_successful_ids  # noqa: E402
 from .routers import (  # noqa: E402
     bind_router,
     hero_router,
@@ -442,5 +443,17 @@ app.include_router(batch_rating_router)
 async def batch_rating_page(request: Request):
     target = "/" + ("?" + request.url.query if request.url.query else "")
     return RedirectResponse(target, status_code=307)
+
+
+@app.middleware("http")
+async def record_completed_player_query(request: Request, call_next):
+    response = await call_next(request)
+    tag = getattr(request.state, "query_battletag", None)
+    if tag and 200 <= response.status_code < 300:
+        tags = [tag]
+        if request.url.path.rstrip("/").startswith("/api/sameplay"):
+            tags.append(request.query_params.get("player2"))
+        await record_successful_ids(tags)
+    return response
 
 __all__ = ["app"]

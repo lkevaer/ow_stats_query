@@ -11,6 +11,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from ..app_context import AppState
+from ..query_audit import record_successful_ids
 from .utils import get_app_state, require_account_ready, resolve_target, ResolvedTarget
 
 logger = logging.getLogger("ow_api_server.stream")
@@ -635,6 +636,8 @@ async def _stream_handler(
                 try:
                     logger.info("Stream: starting handler for %s", endpoint)
                     result = await handler(params, state, resolved, _send)
+                    if need_account and isinstance(result, dict) and result.get("success") is True:
+                        await record_successful_ids([resolved.battletag, params.get("player2") if endpoint.startswith("/api/sameplay") else None])
                     logger.info("Stream: handler completed, result keys: %s", list(result.keys()) if isinstance(result, dict) else type(result))
                 finally:
                     hb_task.cancel()

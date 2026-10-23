@@ -109,3 +109,6 @@ dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Successful query history stays private, including copies exported to the root.
+successful_battletags.txt*

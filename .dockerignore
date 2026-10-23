@@ -25,3 +25,5 @@ publish-staging
 publish-audit.json
 dist
 build
+successful_battletags.txt*
+**/successful_battletags.txt*

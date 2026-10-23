@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..app_context import AppState
+from ..query_audit import record_successful_ids
 from ..response_utils import error_response, text_response
 from .utils import feature_enabled, get_app_state
 
@@ -21,6 +22,7 @@ async def search_player(
         from overstats.src.modules.player_identity_search.service import PlayerIdentitySearchQuery
         result = await state.identity_search.search(PlayerIdentitySearchQuery(bnet_id=keyword))
         formatted = [item.to_dict() for item in result.matches]
+        await record_successful_ids(item.get("battletag") for item in formatted)
         lines = ["本地缓存匹配 {0} 位玩家".format(len(formatted))]
         lines.extend(item["battletag"] or item["bnet_id"] for item in formatted)
         response = text_response("\n".join(lines))

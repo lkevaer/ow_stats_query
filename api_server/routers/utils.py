@@ -58,6 +58,7 @@ def resolve_target(
     token: Optional[str] = None,
     battletag: Optional[str] = None,
     state: AppState = Depends(get_app_state),
+    request: Request = None,
 ) -> ResolvedTarget:
     """统一解析入口。
 
@@ -87,7 +88,7 @@ def resolve_target(
             bnet_id = binding_rec.bnet_id or explicit_tag
             if binding_rec.display_name:
                 display_name = binding_rec.display_name
-        return ResolvedTarget(
+        target = ResolvedTarget(
             token=token or "",
             battletag=explicit_tag,
             bnet_id=bnet_id,
@@ -95,6 +96,9 @@ def resolve_target(
             display_name=display_name,
             source=source,
         )
+        if request is not None:
+            request.state.query_battletag = target.battletag
+        return target
 
     # 走绑定记录路径
     token = require_token(token)
@@ -114,7 +118,7 @@ def resolve_target(
             detail="绑定记录中缺少有效信息，请重新调用 POST /api/bind。",
         )
 
-    return ResolvedTarget(
+    target = ResolvedTarget(
         token=token,
         battletag=binding_rec.battletag,
         bnet_id=binding_rec.bnet_id or binding_rec.battletag,
@@ -122,6 +126,9 @@ def resolve_target(
         display_name=binding_rec.display_name or binding_rec.battletag,
         source="binding",
     )
+    if request is not None:
+        request.state.query_battletag = target.battletag
+    return target
 
 
 # ---------------------------------------------------------------------------
