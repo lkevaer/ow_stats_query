@@ -48,3 +48,36 @@ test('missing rank is shown as unknown without an invented icon',()=>{
   assert.match(context.rankBadge(null),/未公开\/未定级/);
   assert.doesNotMatch(context.rankBadge(null),/<img/);
 });
+
+test('MVP and CARRY coexist while the entire row keeps the MVP gold border',()=>{
+  const {context}=ui();
+  const html=context.matchRow({...match,is_mvp:true,is_carry:true,is_svp:true});
+  assert.match(html,/<tr class="highlight-mvp"/);
+  assert.match(html,/award mvp.*>MVP/);
+  assert.match(html,/award carry.*>CARRY/);
+  assert.match(html,/award svp.*>SVP/);
+  assert.doesNotMatch(html,/<tr class="highlight-svp"/);
+});
+
+test('SVP gets pale purple priority over CARRY and CARRY alone gets pale gold',()=>{
+  const {context}=ui();
+  assert.match(context.matchRow({...match,is_carry:true,is_svp:true}),/<tr class="highlight-svp"/);
+  assert.match(context.matchRow({...match,is_carry:true}),/<tr class="highlight-carry"/);
+  assert.doesNotMatch(context.matchRow(match),/highlight-(mvp|svp|carry)/);
+});
+
+test('party badges use recorded labels and do not assume solo when unknown',()=>{
+  const {context}=ui();
+  assert.match(context.matchRow({...match,party:{known:true,size:3,label:'三排'}}),/pill party.*>三排/);
+  assert.match(context.partyBadge(null),/组队未知/);
+  assert.doesNotMatch(context.partyBadge(null),/单排/);
+});
+
+test('KD, new SMURF threshold and aggregate reference corrections appear in details',()=>{
+  const {context}=ui();
+  const html=context.playerDetails({...player,kd_perfect:true,smurf_matches:7,match_average:60,summary_adjustments:[{points:18,reason:'SMURF专项加分'}]});
+  assert.match(html,/Fleta≥80%：7\/12场 · 7场为SMURF/);
+  assert.match(html,/KD ∞/);
+  assert.match(html,/SMURF专项加分/);
+  assert.doesNotMatch(html,/Fleta≥100%/);
+});

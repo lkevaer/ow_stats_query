@@ -51,11 +51,10 @@ class ScoringTests(unittest.TestCase):
         result = score(data)
         self.assertAlmostEqual(result["fleta"], 8 / (29 * .5), places=5)
 
-    def test_enemy_statistics_and_victory_do_not_change_score(self):
+    def test_enemy_damage_does_not_change_personal_score(self):
         data = match()
         before = score(data)["score"]
-        data["enemyList"][0].update(heroDamage=999999, death=0, finalHit=999)
-        data["matchRet"] = -1
+        data["enemyList"][0].update(heroDamage=999999)
         self.assertEqual(score(data)["score"], before)
 
     def test_target_on_other_side_uses_its_actual_team(self):
@@ -190,19 +189,19 @@ class ScoringTests(unittest.TestCase):
         self.assertGreater(bonuses[4]-bonuses[3], bonuses[3]-bonuses[2])
         self.assertGreater(scores[-1]-scores[0], 30)
 
-    def test_smurf_requires_five_matches_and_counts_exactly_one_hundred(self):
+    def test_smurf_requires_seven_matches_and_counts_exactly_eighty(self):
         normal = score(match())
         data = match()
         for p in data["teammateList"]: p["finalHit"] = 0
         data["teammateList"][0]["finalHit"] = 20
-        data["teammateList"][1]["finalHit"] = 20
+        data["teammateList"][1]["finalHit"] = 30
         dominant = score(data)
-        self.assertEqual(dominant["fleta"], 1)
-        for count in (4,5):
+        self.assertEqual(dominant["fleta"], .8)
+        for count in (6,7):
             report = aggregate_player("me#1234", [dominant]*count+[normal]*(12-count), fetched=12,errors=[])
             self.assertEqual(report["smurf_matches"], count)
-            self.assertEqual(report["is_smurf"], count>=5)
-            self.assertEqual(report["grade"]=="SMURF", count>=5)
+            self.assertEqual(report["is_smurf"], count>=7)
+            self.assertEqual(report["grade"]=="SMURF", count>=7)
 
     def test_stomp_zero_zero_x_discounts_either_side_without_altering_single_game_score(self):
         for own_weak in (False,True):
@@ -222,7 +221,7 @@ class ScoringTests(unittest.TestCase):
         for p in data["teammateList"]: p.update(kill=3,death=6)
         self.assertEqual(score(data)["sample_weight"], .45)
 
-    def test_weighted_aggregation_and_win_rate_are_separate(self):
+    def test_win_rate_only_slightly_adjusts_weighted_match_average(self):
         one, two = score(match()), score(match())
         one.update(score=90,sample_weight=.25,is_stomp=True,outcome_label="胜")
         two.update(score=50,sample_weight=1,outcome_label="负")
@@ -231,7 +230,9 @@ class ScoringTests(unittest.TestCase):
         self.assertEqual(report["win_rate"], .5)
         self.assertEqual(report["effective_matches"], 1.25)
         two["outcome_label"]="胜"
-        self.assertEqual(aggregate_player("me#1234",[one,two],fetched=2,errors=[])["score"],58)
+        updated=aggregate_player("me#1234",[one,two],fetched=2,errors=[])
+        self.assertEqual(updated["match_average"],58)
+        self.assertEqual(updated["score"],58.25)
 
     def test_hero_and_map_assets_are_resolved_safely(self):
         heroes = deepcopy(HEROES)

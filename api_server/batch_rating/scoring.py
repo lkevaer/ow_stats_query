@@ -4,8 +4,9 @@ from collections import Counter
 import math
 import statistics
 from .rank import match_rank
+from .context import death_context, kd_stats, numeric, party_info, support_survival, survival_points
 
-VERSION = "team-relative-2026s5-v3"
+VERSION = "team-relative-2026s5-v4"
 ROLE_LABELS = {"tank": "坦克", "dps": "输出", "support": "辅助"}
 WEIGHTS = {
     "tank": {"damage": .30, "final_blows": .27, "survival": .23, "eliminations": .10, "final_blow_share": .08, "mitigation": .02},
@@ -13,7 +14,7 @@ WEIGHTS = {
     "support": {"survival": .40, "healing": .25, "assists": .10, "damage": .15, "final_blows": .04, "eliminations": .03, "final_blow_share": .03},
 }
 FIELDS = {"damage": "heroDamage", "final_blows": "finalHit", "survival": "death", "eliminations": "kill", "healing": "cure", "assists": "assist", "mitigation": "resistDamage"}
-RELATIVE_NOTICE = "上下等马仅在本次查询名单内相对区分；相对评分不代表绝对水平。"
+RELATIVE_NOTICE = "上下等马仅在本次查询名单内相对区分；相对评分不代表绝对水平。名单段位差距过大时，上下等马评级没有比较意义。"
 SCOPE_NOTICE = "本页面对于上下等马的评级仅限于账号本身匹配池的近12场游戏数据，不考虑段位高低对于对局水平含金量的影响。因此如果名单段位跨度过大可能会出现低段位的评级比高段位的高的情况，这种情况是正常的。所以最佳适用场景是在自己竞技模式匹配到了之后，通过屏蔽其余队友查看ID的方法，查询队内五人的评级。"
 HERO_SCORE_FACTORS = {"207165582859042820": .72, "mercy": .72, "天使": .72}
 
@@ -24,19 +25,8 @@ def role_of(player: dict, heroes: dict) -> str | None:
     return {"tank": "tank", "dps": "dps", "damage": "dps", "healer": "support", "support": "support"}.get(role)
 
 
-def numeric(player: dict, key: str) -> float | None:
-    value = player.get(key)
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        value = float(value)
-        return value if math.isfinite(value) and value >= 0 else None
-    except (TypeError, ValueError):
-        return None
-
-
 def grade(score: float) -> str:
-    for cutoff, label in [(85, "S"), (75, "A"), (60, "B"), (45, "C")]:
+    for cutoff, label in [(82, "S"), (75, "A"), (60, "B"), (45, "C")]:
         if score >= cutoff:
             return label
     return "D"
@@ -85,17 +75,16 @@ def _asset_url(value) -> str | None:
     return value if isinstance(value, str) and value.startswith("https://") else None
 
 
-def score_match(data: dict, source: dict, *, customer_token: str, bnet_id: str, battletag: str, heroes: dict, maps: dict | None = None, ranks: list[dict] | None = None) -> dict:
-    own, team = None, []
-    teams = [[p for p in data.get(key, []) if isinstance(p, dict)] for key in ("teammateList", "enemyList")]
-    for players in teams:
-        matching = [p for p in players if _identity_matches(p, customer_token=customer_token, bnet_id=bnet_id, battletag=battletag)]
-        if len(matching) > 1 or (matching and own is not None):
-            raise ValueError("对局详情中玩家身份不唯一，未计分")
-        if matching:
-            own, team = matching[0], players
-    if own is None:
-        raise ValueError("对局详情没有找到该玩家，未计分")
+def _outcome(data: dict, source: dict, side: int) -> int | None:
+    raw = data.get("matchRet", source.get("matchRet"))
+    if isinstance(raw, bool) or str(raw) not in {"-1", "0", "1", "2"}:
+        return None
+    outcome = 1 if int(raw) == 1 else 0 if int(raw) == 0 else -1
+    return -outcome if side else outcome
+
+
+def _score_player(data: dict, source: dict, *, own: dict, team: list[dict], opponents: list[dict], side: int,
+                  heroes: dict, maps: dict, ranks: list[dict], stomp: float, stomp_reason: str) -> dict:
     role = role_of(own, heroes)
     if role is None:
         raise ValueError("该英雄位置未知，未使用猜测的位置计分")
@@ -106,6 +95,9 @@ def score_match(data: dict, source: dict, *, customer_token: str, bnet_id: str, 
     if len(others) < 2:
         raise ValueError("自家队友数据不足，无法进行队内比较")
     warnings, adjustments, components = [], [], {}
+    context = death_context(team, opponents, seconds, is_stomp=stomp < 1)
+    if context["low_team_deaths"]:
+        warnings.append("全队阵亡较低，已降低阵亡扣分敏感度")
     same_role = [p for p in others if role_of(p, heroes) == role]
     offensive = [p for p in others if role_of(p, heroes) in {"tank", "dps"}]
     valid_finals = [numeric(p, "finalHit") for p in team]
@@ -137,6 +129,8 @@ def score_match(data: dict, source: dict, *, customer_token: str, bnet_id: str, 
         reference = statistics.mean(values)
         rate, reference_rate = value * 600 / seconds, reference * 600 / seconds
         points = relative_points(rate, reference_rate, inverse=metric == "survival", smoothing=300 if metric in {"damage", "healing"} else 1)
+        if metric == "survival":
+            points = survival_points(points, value, seconds, role, context)
         components[metric] = {"value": round(value, 3), "per10": round(rate, 3), "reference": round(reference, 3),
                               "reference_per10": round(reference_rate, 3), "points": round(points, 3), "weight": weight, "comparison": comparison}
     available_weight = sum(c["weight"] for c in components.values())
@@ -157,21 +151,29 @@ def score_match(data: dict, source: dict, *, customer_token: str, bnet_id: str, 
     if role == "support":
         death = numeric(own, "death")
         other_deaths = [numeric(p, "death") for p in others]
-        high_death = False
-        if all(x is not None for x in other_deaths):
-            median = statistics.median(other_deaths)
-            high_death = death > median
-            if high_death:
-                penalty = min(25, (death - median) * 600 / seconds * 2.4 + 7 * (death - median) / max(median, 1))
-                if death >= max(other_deaths) and death > min(other_deaths):
-                    penalty += 10 if death > max(other_deaths) else 5
-                adjust(-penalty, "辅助高阵亡" + ("，全队最高" if death >= max(other_deaths) else ""))
-            elif death <= min(other_deaths) and death < max(other_deaths):
-                adjust(4, "辅助低阵亡")
+        penalty, high_death, waived = support_survival(death, others, seconds, context)
+        if penalty > 0:
+            adjust(-penalty, "辅助阵亡偏多" if not context["low_team_deaths"] else "辅助阵亡略多，低阵亡局减轻扣分")
+        if waived:
+            warnings.append("对手阵亡明显更多，仅多阵亡一次，免除辅助最高阵亡额外扣分")
+        if not high_death and all(x is not None for x in other_deaths) and death <= min(other_deaths) and death < max(other_deaths):
+            adjust(4, "辅助低阵亡")
         if share is not None and share > 0 and (not high_death or share >= .30):
             adjust(min(42, 2 * share + 90 * max(0, share - .15) ** 2), "辅助最后一击占比递增加分")
     if share is not None and share >= .50:
         adjust(min(28, 18 + (share - .50) * 40), "最后一击占比≥50%，高权重加分")
+
+    outcome = _outcome(data, source, side)
+    kills, death = numeric(own, "kill"), numeric(own, "death")
+    solo_positive = bool(kills is not None and kills > death and all(
+        numeric(p, "kill") is not None and numeric(p, "death") is not None
+        and numeric(p, "kill") < numeric(p, "death") for p in others))
+    loss_protected = bool(outcome == -1 and fleta is not None and fleta >= .80)
+    if loss_protected:
+        deductions = max(0., -components["survival"]["contribution"]) + sum(-a["points"] for a in adjustments if a["points"] < 0)
+        relief = min(deductions, 16 if solo_positive else 10, deductions * (.45 if solo_positive else .25) + (6 if solo_positive else 2))
+        if relief > 0:
+            adjust(relief, "败方高Fleta且队内唯一正战绩，减轻生存扣分" if solo_positive else "败方高Fleta，减轻生存扣分")
 
     hero_guid = str(own.get("heroGuid") or own.get("heroId") or "")
     hero = heroes.get(hero_guid) or {}
@@ -179,9 +181,7 @@ def score_match(data: dict, source: dict, *, customer_token: str, bnet_id: str, 
     score = round(max(0, min(100, (base + sum(a["points"] for a in adjustments)) * factor)), 2)
     map_guid = str(data.get("mapGuid") or source.get("mapGuid") or "")
     map_info = (maps or {}).get(map_guid, {})
-    stomp, stomp_reason = stomp_weight(teams)
     duration_weight = min(1., seconds / 180)
-    outcome = data.get("matchRet", source.get("matchRet"))
     return {
         "match_id": str(source.get("matchId") or ""), "begin_ts": source.get("beginTs") or data.get("startTime"),
         "game_mode": source.get("gameMode"), "seconds": seconds, "hero": hero.get("name") or hero_guid,
@@ -194,6 +194,10 @@ def score_match(data: dict, source: dict, *, customer_token: str, bnet_id: str, 
         "team_final_blows": total_finals if share is not None else None, "team_size": len(team),
         "outcome": outcome, "outcome_label": "胜" if outcome == 1 else "平" if outcome == 0 else "负" if outcome is not None else "未知",
         "rank": match_rank(own,source,ranks or []),
+        "party": party_info(own, team), "death_context": context,
+        **kd_stats(kills, death), "loss_protected": loss_protected, "solo_positive": solo_positive,
+        "is_carry": fleta is not None and fleta >= .80,
+        "is_svp": outcome == -1 and fleta is not None and fleta > .80,
         "metrics": components, "adjustments": adjustments, "warnings": warnings,
         "stats": {key: numeric(own, key) for key in FIELDS.values()},
         "data_coverage": round(available_weight, 3), "sample_weight": round(duration_weight * stomp, 4),
@@ -201,12 +205,59 @@ def score_match(data: dict, source: dict, *, customer_token: str, bnet_id: str, 
     }
 
 
+def score_match(data: dict, source: dict, *, customer_token: str, bnet_id: str, battletag: str,
+                heroes: dict, maps: dict | None = None, ranks: list[dict] | None = None) -> dict:
+    own, side = None, 0
+    teams = [[p for p in (data.get(key) or []) if isinstance(p, dict)] for key in ("teammateList", "enemyList")]
+    for index, players in enumerate(teams):
+        matching = [p for p in players if _identity_matches(p, customer_token=customer_token, bnet_id=bnet_id, battletag=battletag)]
+        if len(matching) > 1 or (matching and own is not None):
+            raise ValueError("对局详情中玩家身份不唯一，未计分")
+        if matching:
+            own, side = matching[0], index
+    if own is None:
+        raise ValueError("对局详情没有找到该玩家，未计分")
+    stomp, reason = stomp_weight(teams)
+
+    def calculate(player, index):
+        # The list snapshot belongs to the queried player, not every participant.
+        snapshot = source if player is own else {k: v for k, v in source.items() if k != "rankInfo"}
+        return _score_player(data, snapshot, own=player, team=teams[index], opponents=teams[1-index], side=index,
+                             heroes=heroes, maps=maps or {}, ranks=ranks or [], stomp=stomp, stomp_reason=reason)
+
+    result = calculate(own, side)
+    scores = [result["score"]]
+    complete = all(len(team) == 5 for team in teams)
+    identities = [str(p.get("bnetId") or p.get("customerToken") or p.get("name") or p.get("battletag") or "") for team in teams for p in team]
+    complete = complete and all(identities) and len(set(identities)) == 10 and result["data_coverage"] >= .999
+    if complete:
+        for index, team in enumerate(teams):
+            for player in team:
+                if player is own:
+                    continue
+                try:
+                    candidate = calculate(player, index)
+                    scores.append(candidate["score"])
+                    if candidate["data_coverage"] < .999:
+                        complete = False
+                except ValueError:
+                    complete = False
+    highest = max(scores)
+    result.update(is_mvp=complete and result["score"] == highest,
+                  mvp_tied=complete and result["score"] == highest and scores.count(highest) > 1,
+                  mvp_compared_players=len(scores) if all(len(t) == 5 for t in teams) else 0,
+                  mvp_comparison_complete=complete,
+                  mvp_note="按当局完整十人自定义评分比较，同分可并列" if complete else "十人可评分数据不完整，未判定MVP")
+    return result
+
+
 def aggregate_player(battletag: str, matches: list[dict], *, fetched: int, errors: list[dict]) -> dict:
+    matches = sorted(matches, key=lambda m: float(m.get("begin_ts") or 0), reverse=True)[:12]
     base = {"battletag": battletag, "requested_matches": 12, "fetched_matches": fetched, "rated_matches": len(matches), "matches": matches, "errors": errors}
     if not matches:
         return {**base, "status": "unrated", "score": None, "grade": None, "tier": "未评级", "confidence": 0, "rank": None}
     weight = sum(m["sample_weight"] for m in matches)
-    score = round(sum(m["score"] * m["sample_weight"] for m in matches) / weight, 2)
+    match_average = sum(m["score"] * m["sample_weight"] for m in matches) / weight
     roles = Counter(m["role"] for m in matches)
     averages = {}
     for metric in FIELDS:
@@ -216,26 +267,51 @@ def aggregate_player(battletag: str, matches: list[dict], *, fetched: int, error
     final_matches = [m for m in matches if m["fleta"] is not None]
     finals_total = sum(m["team_final_blows"] for m in final_matches)
     fleta = sum(m["fleta"] * m["team_final_blows"] for m in final_matches) / finals_total if finals_total else None
-    dominant_count = sum(m.get("final_blow_share") is not None and m["final_blow_share"] >= .50 for m in matches)
-    smurf = dominant_count >= 5
+    dominant_count = sum(m.get("fleta") is not None and m["fleta"] >= .80 for m in matches)
+    smurf = dominant_count >= 7
     outcomes = Counter(m["outcome_label"] for m in matches)
     known_outcomes = sum(outcomes[k] for k in ("胜", "负", "平"))
+    win_rate = outcomes["胜"] / known_outcomes if known_outcomes else None
+    summary_adjustments = []
+    if smurf:
+        summary_adjustments.append({"points": 18., "reason": "近12场至少7场Fleta≥80%，SMURF最高权重专项加分"})
+    if win_rate is not None:
+        win_points = (win_rate - .5) * 3 * min(1., known_outcomes / 12)
+        if win_points < 0 and outcomes["负"]:
+            protected = sum(m["outcome_label"] == "负" and m.get("loss_protected", False) for m in matches)
+            win_points *= 1 - .8 * protected / outcomes["负"]
+        if win_points:
+            summary_adjustments.append({"points": round(win_points, 3), "reason": "近12场胜率参考，小幅修正"})
+    kd_matches = [m for m in matches if numeric(m.get("stats", {}), "kill") is not None and numeric(m.get("stats", {}), "death") is not None]
+    kills = sum(numeric(m["stats"], "kill") for m in kd_matches)
+    deaths = sum(numeric(m["stats"], "death") for m in kd_matches)
+    kd = kd_stats(kills, deaths) if kd_matches else kd_stats(None, None)
+    if kd_matches and kills >= 10 and (kd["kd_perfect"] or kd["kd"] >= 10):
+        kd_points = 1.5 if kd["kd_perfect"] else min(1.5, .75 + math.log2(kd["kd"] / 10) * .25)
+        summary_adjustments.append({"points": round(kd_points * len(kd_matches) / 12, 3), "reason": "KD≥10，小幅加分"})
+    score = round(max(0, min(100, match_average + sum(a["points"] for a in summary_adjustments))), 2)
     ranked_matches=sorted((m for m in matches if (m.get("rank") or {}).get("known")),key=lambda m:float(m.get("begin_ts") or 0),reverse=True)
     latest_rank={**ranked_matches[0]["rank"],"role":ranked_matches[0]["role"],"role_label":ranked_matches[0]["role_label"],"match_begin_ts":ranked_matches[0]["begin_ts"]} if ranked_matches else None
     return {
         **base, "status": "complete" if len(matches) == 12 else "partial", "score": score,
         "grade": "SMURF" if smurf else grade(score), "score_grade": grade(score), "is_smurf": smurf,
         "latest_rank":latest_rank,
-        "smurf_matches": dominant_count, "smurf_threshold": 5,
+        "match_average": round(match_average, 2), "summary_adjustments": summary_adjustments, **kd,
+        "kd_samples": len(kd_matches), "total_kills": kills if kd_matches else None, "total_deaths": deaths if kd_matches else None,
+        "smurf_matches": dominant_count, "smurf_threshold": 7, "smurf_fleta_threshold": .80,
+        "mvp_matches": sum(m.get("is_mvp", False) for m in matches),
+        "carry_matches": sum(m.get("is_carry", False) for m in matches),
+        "svp_matches": sum(m.get("is_svp", False) for m in matches),
+        "party_counts": dict(Counter(m["party"]["label"] for m in matches if (m.get("party") or {}).get("known"))),
         "confidence": round(min(1, len(matches) / 12) * statistics.mean(m["data_coverage"] for m in matches), 3),
         "roles": dict(roles), "primary_role": max(roles, key=roles.get), "grade_counts": dict(Counter(m["grade"] for m in matches)),
         "averages": averages, "fleta": round(fleta, 6) if fleta is not None else None,
         "final_blow_share": round(fleta / 2, 6) if fleta is not None else None,
         "wins": outcomes["胜"], "losses": outcomes["负"], "draws": outcomes["平"],
-        "win_rate": round(outcomes["胜"] / known_outcomes, 6) if known_outcomes else None,
+        "win_rate": round(win_rate, 6) if win_rate is not None else None,
         "win_rate_samples": known_outcomes, "stomp_matches": sum(m.get("is_stomp", False) for m in matches),
         "effective_matches": round(weight, 2), "minutes": round(sum(m["seconds"] for m in matches) / 60, 2),
-        "sample_note": "近12场；碾压局与短局按权重汇总" if len(matches) == 12 else f"仅有{len(matches)}场可评分，结果暂定；未用其他模式补齐",
+        "sample_note": "近12场；碾压局与短局按权重汇总，胜率与KD仅小幅参考" if len(matches) == 12 else f"仅有{len(matches)}场可评分，结果暂定；未用其他模式补齐",
     }
 
 
@@ -276,12 +352,23 @@ def grouped_summary(players: list[dict]) -> str:
 
 def scoring_rules() -> dict:
     return {
-        "version": VERSION, "weights": WEIGHTS,
+        "version": VERSION,
         "fleta_definition": "个人最后一击 /（自家全队最后一击总数 × 50%）；Fleta=最后一击占比×2，不截断；零分母不计",
-        "final_blow_share_thresholds": {"tank": .30, "dps": .40, "major_bonus": .50},
-        "smurf": "最近12场中至少5场个人最后一击占比≥50%（Fleta≥100%）；不足12场但已有5场达标也可确认",
-        "aggregation": "按对局权重平均；短于3分钟按时长降权，单方全队0-0-x或负战绩及明显碾压局双向降权",
-        "win_rate": "按已知胜负平计算，平局进入分母；仅供参考，不直接加减个人评分",
+        "reference": [
+            "评分偏重最后一击与Fleta，T和C更容易获得高分；不按段位高低修正对局含金量。",
+            "T兼顾伤害、生存和最后一击，占比达30%额外加分；C侧重伤害与最后一击，占比达40%额外加分；全位置占比达50%高权重加分。",
+            "辅助兼顾生存、治疗、伤害与助攻；高Fleta加分逐渐加速，高阵亡仍需足够的进攻贡献补偿。",
+            "阵亡按时长、队内差距与双方整体阵亡量综合考量；全队低阵亡时所有位置降低扣分敏感度，辅助仅为全队最高不自动重扣。",
+            "非碾压局中对手阵亡明显更多时，辅助仅多阵亡一次免除最高阵亡额外扣分；全队高阵亡不能豁免辅助生存要求。",
+            "败方高Fleta减轻生存扣分；队友全为负战绩而本人正战绩时进一步照顾，但不无限抵消高阵亡。",
+            "最近12场至少7场Fleta达到80%标记SMURF，给予综合评分中最高权重的专项加分；不足12场但已有7场达标也可确认，其余仍标记样本不足。",
+            "KD使用击杀/阵亡，KD达到10可小幅加分；胜率仅小幅参考，平局进入分母，不主导评分。",
+            "当局完整十人评分最高者标记MVP，并列最高可同时获得；Fleta达到80%标记Carry，败方Fleta超过80%同时标记SVP；标记本身不额外加分。",
+            "组队标记来自当局组队成员记录；缺失或异常时显示未知，不推测组队人数。",
+            "碾压局对双方均降低汇总权重，短局也降权；只采用该模式最近12场，不混入其他模式，不补造缺失对局。",
+            "综合Fleta按最后一击总数汇总；综合分按对局权重汇总再参考持续高Fleta、胜率和KD。关键数据缺失不计分。",
+            "S从82分起；A从75分、B从60分、C从45分起，其余D。SMURF是额外表现等级；上中下等马仅是本次名单内的相对排序，同分同档。",
+        ],
         "relative_notice": RELATIVE_NOTICE,
         "disclaimer": "自定义队内表现评分，不是网易官方分数，不代表段位；同分同档，无数据不评级",
     }
