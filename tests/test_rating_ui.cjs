@@ -101,13 +101,13 @@ test('hot streak appears alongside the win rate in overview and detail header',(
   assert.equal(context.hotBadge({...hot,hot_streak:false}),'');
 });
 
-test('compact match table retains all statistics while using only nine columns',()=>{
+test('classic match table restores independent columns without losing current form indicators',()=>{
   const {context}=ui();
-  const html=context.matchRow({...match,stats:{kill:20,assist:8,death:3,heroDamage:6000,cure:2000,finalHit:10},kd:20/3,team_final_blows:30,opponent_final_blows:31,balanced_final_blows:true,long_match:true});
-  assert.equal((html.match(/<td(?:\s[^>]*)?>/g)||[]).length,9);
-  assert.match(html,/本场记录段位|测试/);
-  for(const text of ['击杀','助攻','阵亡','KD','伤害','治疗','双方最后一击','长局增权','接近']) assert.ok(html.includes(text),text);
+  const html=context.matchRow({...match,stats:{kill:20,assist:8,death:3,heroDamage:6000,cure:2000,finalHit:10},kd:20/3,team_final_blows:30,opponent_final_blows:31,balanced_final_blows:true,long_match:true},true);
+  assert.equal((html.match(/<td(?:\s[^>]*)?>/g)||[]).length,16);
+  for(const text of ['长局增权','接近']) assert.ok(html.includes(text),text);
   const detailed=context.playerDetails(player,true);
-  assert.equal((detailed.match(/<th>/g)||[]).length,9);
-  assert.match(detailed,/colgroup/);
+  assert.equal((detailed.match(/<th>/g)||[]).length,16);
+  for(const text of ['本场记录段位','最后一击占比','Fleta','击杀','助攻','阵亡','KD','伤害/10分','治疗/10分']) assert.ok(detailed.includes(text),text);
+  assert.doesNotMatch(detailed,/colgroup/);
 });
