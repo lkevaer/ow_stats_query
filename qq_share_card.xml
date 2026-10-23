@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<msg templateID="12345" serviceID="1" action="web"
+     brief="[分享] 守望先锋队友评分"
+     url="https://lkevaer.xyz/">
+  <item layout="2">
+    <picture cover="https://lkevaer.xyz/static/share-cover.png"/>
+    <title>守望先锋｜队友评分·上下等马查询</title>
+    <summary>上传截图或输入战网ID，查看近12场逐场评分、Fleta、KD与MVP，比较队友表现。</summary>
+  </item>
+  <source name="lkevaer.xyz"/>
+</msg>

@@ -1,4 +1,10 @@
-# QQ 分享资料
+# QQ XML 图文卡片
+
+可直接复制的消息代码见 [qq_share_card.xml](qq_share_card.xml)，使用 `serviceID=1`、`action=web` 和 `item layout=2` 的网站图文卡片结构；封面为项目的逐场战绩详情图片，点击跳转到网站。
+
+将 XML 导入支持原始 XML 消息的卡片发送工具，消息类型选择 XML。普通 QQ 聊天框粘贴代码只会成为文本。模板结构参考 [MiraiGo 的 NewUrlShare 实现](https://github.com/Mrs4s/MiraiGo/blob/master/message/elements.go)及 [OneBot 11 XML 消息段](https://github.com/botuniverse/onebot-11/blob/master/message/segment.md#xml-%E6%B6%88%E6%81%AF)；不同客户端和发送器的支持情况可能不同，未进行实际QQ发送测试。
+
+服务器拉取本次更新并重新构建后，先确认 `https://lkevaer.xyz/static/share-cover.png` 能公开打开，再发送 XML。否则 QQ 无法取得封面。本次只生成卡片资料，没有启动机器人或发送群消息。
 
 标题：守望先锋｜队友评分·上下等马查询
 
