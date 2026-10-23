@@ -190,14 +190,14 @@ class ScoringTests(unittest.TestCase):
         self.assertTrue(all(a <= b for a,b in zip(scores,scores[1:])))
         self.assertGreater(scores[-1]-scores[0], 30)
 
-    def test_smurf_requires_seven_matches_and_counts_exactly_eighty(self):
+    def test_smurf_requires_seven_matches_above_sixty_five(self):
         normal = score(match())
         data = match()
         for p in data["teammateList"]: p["finalHit"] = 0
-        data["teammateList"][0]["finalHit"] = 20
-        data["teammateList"][1]["finalHit"] = 30
+        data["teammateList"][0]["finalHit"] = 14
+        data["teammateList"][1]["finalHit"] = 26
         dominant = score(data)
-        self.assertEqual(dominant["fleta"], .8)
+        self.assertEqual(dominant["fleta"], .7)
         for count in (6,7):
             report = aggregate_player("me#1234", [dominant]*count+[normal]*(12-count), fetched=12,errors=[])
             self.assertEqual(report["smurf_matches"], count)

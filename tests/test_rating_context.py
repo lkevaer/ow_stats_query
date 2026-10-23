@@ -196,16 +196,28 @@ class AggregateReferenceTests(unittest.TestCase):
         self.assertGreater(major, sum(a["points"] for a in bonuses if "SMURF" not in a["reason"]))
         self.assertGreater(result["score"], result["match_average"] + 15)
 
-    def test_below_eighty_never_counts_and_only_latest_twelve_count(self):
+    def test_exactly_sixty_five_never_counts_and_only_latest_twelve_count(self):
         items = []
         for i in range(13):
             item = score(match())
-            item.update(begin_ts=i, fleta=.8 if i < 7 else .799999)
+            item.update(begin_ts=i, fleta=.650001 if i < 7 else .65)
             items.append(item)
         result = aggregate_player("me#1234", items, fetched=13, errors=[])
         self.assertEqual(result["rated_matches"], 12)
         self.assertEqual(result["smurf_matches"], 6)
         self.assertFalse(result["is_smurf"])
+
+    def test_smurf_strict_boundary_below_equal_and_above_sixty_five(self):
+        item = score(match())
+        for value in (.649999, .65, .650001):
+            with self.subTest(fleta=value):
+                candidate = deepcopy(item)
+                candidate["fleta"] = value
+                result = aggregate_player("me#1234", [candidate]*12, fetched=12, errors=[])
+                self.assertEqual(result["is_smurf"], value > .65)
+                self.assertEqual(result["smurf_matches"], 12 if value > .65 else 0)
+                self.assertEqual(result["smurf_fleta_threshold"], .65)
+                self.assertEqual(result["smurf_fleta_operator"], ">")
 
     def test_seven_observed_qualifying_games_can_confirm_smurf_without_inventing_five(self):
         item = score(match())

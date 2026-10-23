@@ -6,7 +6,7 @@ import statistics
 from .rank import match_rank
 from .context import death_context, kd_stats, match_weights, numeric, party_info, support_survival, survival_points
 
-VERSION = "team-relative-2026s5-v5"
+VERSION = "team-relative-2026s5-v6"
 ROLE_LABELS = {"tank": "坦克", "dps": "输出", "support": "辅助"}
 WEIGHTS = {
     "tank": {"damage": .30, "final_blows": .27, "survival": .23, "eliminations": .10, "final_blow_share": .08, "mitigation": .02},
@@ -293,7 +293,7 @@ def aggregate_player(battletag: str, matches: list[dict], *, fetched: int, error
     final_matches = [m for m in matches if m["fleta"] is not None]
     finals_total = sum(m["team_final_blows"] for m in final_matches)
     fleta = sum(m["fleta"] * m["team_final_blows"] for m in final_matches) / finals_total if finals_total else None
-    dominant_count = sum(m.get("fleta") is not None and m["fleta"] >= .80 for m in matches)
+    dominant_count = sum(m.get("fleta") is not None and m["fleta"] > .65 for m in matches)
     smurf = dominant_count >= 7
     outcomes = Counter(m["outcome_label"] for m in matches)
     known_outcomes = sum(outcomes[k] for k in ("胜", "负", "平"))
@@ -301,7 +301,7 @@ def aggregate_player(battletag: str, matches: list[dict], *, fetched: int, error
     hot_streak = len(matches) == 12 and outcomes["胜"] >= 10
     summary_adjustments = []
     if smurf:
-        summary_adjustments.append({"points": 18., "reason": "近12场至少7场Fleta≥80%，SMURF最高权重专项加分"})
+        summary_adjustments.append({"points": 18., "reason": "近12场至少7场Fleta>65%，SMURF最高权重专项加分"})
     if win_rate is not None:
         win_points = (win_rate - .5) * 3 * min(1., known_outcomes / 12)
         if hot_streak:
@@ -333,7 +333,7 @@ def aggregate_player(battletag: str, matches: list[dict], *, fetched: int, error
         "hot_streak": hot_streak, "hot_streak_threshold": 10,
         "high_kd_matches": high_kd_count, "high_kd_threshold": 9, "consistent_high_kd": consistent_kd,
         "kd_samples": len(kd_matches), "total_kills": kills if kd_matches else None, "total_deaths": deaths if kd_matches else None,
-        "smurf_matches": dominant_count, "smurf_threshold": 7, "smurf_fleta_threshold": .80,
+        "smurf_matches": dominant_count, "smurf_threshold": 7, "smurf_fleta_threshold": .65, "smurf_fleta_operator": ">",
         "mvp_matches": sum(m.get("is_mvp", False) for m in matches),
         "carry_matches": sum(m.get("is_carry", False) for m in matches),
         "svp_matches": sum(m.get("is_svp", False) for m in matches),
@@ -399,7 +399,7 @@ def scoring_rules() -> dict:
             "阵亡按时长、队内差距与双方整体阵亡量综合考量；全队低阵亡时所有位置降低扣分敏感度，辅助仅为全队最高不自动重扣。",
             "辅助Fleta未达到50%时，非碾压局中对手阵亡明显更多、辅助仅多阵亡一次免除最高阵亡额外扣分；全队高阵亡不能自动豁免辅助生存要求。",
             "败方高Fleta减轻生存扣分；队友全为负战绩而本人正战绩时进一步照顾，但不无限抵消高阵亡。",
-            "最近12场至少7场Fleta达到80%标记SMURF，给予综合评分中最高权重的专项加分；不足12场但已有7场达标也可确认，其余仍标记样本不足。",
+            "最近12场至少7场Fleta严格大于65%标记SMURF，等于65%不计入，给予综合评分中最高权重的专项加分；不足12场但已有7场达标也可确认，其余仍标记样本不足。",
             "KD使用击杀/阵亡，综合KD达到10可小幅加分；近12场至少9场KD达到7时给予较高权重加分。有击杀且零阵亡记为∞，0击杀0阵亡不算高KD。",
             "一般胜率仅小幅参考，平局进入分母；完整近12场至少10胜时标记手感火热，并提高胜率加分权重。样本不足不推测完整12场胜率。",
             "当局完整十人评分最高者标记MVP，并列最高可同时获得；Fleta达到80%标记Carry，败方Fleta超过80%同时标记SVP；标记本身不额外加分。",

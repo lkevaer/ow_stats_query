@@ -76,7 +76,7 @@ test('party badges use recorded labels and do not assume solo when unknown',()=>
 test('KD, new SMURF threshold and aggregate reference corrections appear in details',()=>{
   const {context}=ui();
   const html=context.playerDetails({...player,kd_perfect:true,smurf_matches:7,match_average:60,summary_adjustments:[{points:18,reason:'SMURF专项加分'}]});
-  assert.match(html,/Fleta≥80%：7\/12场 · 7场为SMURF/);
+  assert.match(html,/Fleta>65%：7\/12场 · 7场为SMURF/);
   assert.match(html,/KD ∞/);
   assert.match(html,/SMURF专项加分/);
   assert.doesNotMatch(html,/Fleta≥100%/);
