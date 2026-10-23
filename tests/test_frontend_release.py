@@ -4,8 +4,10 @@ from contextlib import closing
 import hashlib
 from html.parser import HTMLParser
 from pathlib import Path
+from io import BytesIO
 import tempfile
 import unittest
+from urllib.parse import urlsplit
 
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -18,16 +20,34 @@ class Assets(HTMLParser):
     def __init__(self, html):
         super().__init__()
         self.assets = []
+        self.meta = {}
         self.feed(html)
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
+        if tag == "meta" and attrs.get("property"):
+            self.meta[attrs["property"]] = attrs.get("content", "")
         url = attrs.get("src") if tag == "script" else attrs.get("href") if tag == "link" else None
         if url and url.startswith("/static/"):
             self.assets.append((url, attrs.get("integrity")))
 
 
 class FrontendReleaseTests(unittest.TestCase):
+    def test_share_metadata_points_to_the_packaged_cover_with_correct_dimensions(self):
+        with closing(TestClient(app)) as client:
+            meta = Assets(client.get("/").text).meta
+            self.assertEqual(meta["og:url"], "https://lkevaer.xyz/")
+            self.assertIn("队友评分", meta["og:title"])
+            self.assertIn("近12场", meta["og:description"])
+            cover = urlsplit(meta["og:image"])
+            self.assertEqual(cover.scheme, "https")
+            self.assertEqual(cover.netloc, "lkevaer.xyz")
+            response = client.get(cover.path)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers["content-type"], meta["og:image:type"])
+            with Image.open(BytesIO(response.content)) as image:
+                self.assertEqual(image.size, (int(meta["og:image:width"]), int(meta["og:image:height"])))
+
     def test_home_references_complete_assets_matching_the_deployed_bytes(self):
         with closing(TestClient(app)) as client:
             response = client.get("/")
