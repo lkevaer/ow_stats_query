@@ -3,56 +3,26 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import csv
 import io
 import json
+import logging
 import os
 from pathlib import Path
-import re
 import shutil
 import sys
 import tempfile
-import unicodedata
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-MAX_PLAYERS = 32
+from .ocr_candidates import MAX_PLAYERS, candidates_from_spans, extract_tags, normalize_tags, vote_candidates
+from .ocr_engine import image_variants, recognize_neural
+
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
-_DIGITS = str.maketrans({"S": "5", "s": "5", "O": "0", "o": "0", "I": "1", "l": "1", "B": "8", "Z": "2"})
+logger = logging.getLogger("ow_api_server.ocr")
 
 
-def normalize_tags(tags: list[str]) -> list[str]:
-    result = []
-    for raw in tags:
-        tag = unicodedata.normalize("NFKC", str(raw)).strip()
-        if not re.fullmatch(r"[^#\s]{1,32}#[0-9]{3,12}", tag):
-            raise ValueError(f"BattleTag 格式无效：{tag[:48]}，应为 昵称#数字")
-        if tag not in result:
-            result.append(tag)
-    if not result:
-        raise ValueError("没有识别到完整 BattleTag，请上传清晰截图或输入 昵称#数字")
-    if len(result) > MAX_PLAYERS:
-        raise ValueError(f"每批最多 {MAX_PLAYERS} 位玩家，请分批查询")
-    return result
-
-
-def extract_tags(text: str) -> tuple[list[str], list[dict]]:
-    tags, corrections = [], []
-    for line in unicodedata.normalize("NFKC", text).splitlines():
-        line = re.sub(r"\s+", "", line)
-        match = re.search(r"([^#\s,，;；|]{1,32})#([0-9SOoIlsBZ]{3,12})(?![0-9A-Za-z])", line)
-        if not match:
-            continue
-        name, suffix = match.groups()
-        corrected = suffix.translate(_DIGITS)
-        tag = name.strip("•·[]【】☐□✓") + "#" + corrected
-        if tag not in tags:
-            tags.append(tag)
-        if suffix != corrected:
-            corrections.append({"original": match.group(0), "corrected": tag, "reason": "编号中的 OCR 字母按数字校正"})
-    return normalize_tags(tags), corrections
-
-
-async def recognize_image(encoded: str) -> dict:
+def decode_image(encoded: str) -> Image.Image:
     if len(encoded) > MAX_IMAGE_BYTES * 4 // 3 + 256:
         raise ValueError("图片不能超过 8 MB")
     try:
@@ -64,40 +34,92 @@ async def recognize_image(encoded: str) -> dict:
     try:
         with Image.open(io.BytesIO(raw)) as image:
             if image.width * image.height > 20_000_000:
-                raise ValueError("图片像素过大，请裁剪至账号列表")
-            image = ImageOps.exif_transpose(image).convert("RGB")
-            scale = min(3.0, 2800 / max(image.size))
-            if scale != 1:
-                image = image.resize((max(1, int(image.width * scale)), max(1, int(image.height * scale))), Image.Resampling.LANCZOS)
-            prepared = io.BytesIO()
-            image.save(prepared, format="PNG")
+                raise ValueError("图片像素过大，请框选账号列表")
+            return ImageOps.exif_transpose(image).convert("RGB")
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
         raise ValueError("无法读取图片，请使用 PNG/JPG/WebP 截图") from exc
-    with tempfile.TemporaryDirectory(prefix="ow-rating-ocr-") as temporary:
-        path = Path(temporary) / "input.png"
-        path.write_bytes(prepared.getvalue())
-        if sys.platform == "win32":
-            script = Path(__file__).with_name("ocr_windows.ps1")
-            command = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(script), "-ImagePath", str(path)]
-        else:
-            executable = shutil.which("tesseract")
-            if not executable:
-                raise RuntimeError("中文 OCR 不可用；请安装 Tesseract chi_sim+eng 语言包，或直接输入 BattleTag")
-            command = [executable, str(path), "stdout", "-l", "chi_sim+eng", "--psm", "6"]
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-            creationflags=0x08000000 if os.name == "nt" else 0,
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=45)
-        except asyncio.TimeoutError:
+
+
+async def _native_pass(image: Image.Image, directory: Path, pass_id: int) -> dict:
+    path = directory / f"input-{pass_id}.png"
+    image.save(path, format="PNG")
+    if sys.platform == "win32":
+        script = Path(__file__).with_name("ocr_windows.ps1")
+        command = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", str(script), "-ImagePath", str(path)]
+    else:
+        executable = shutil.which("tesseract")
+        if not executable:
+            raise RuntimeError("本地识别组件不可用，请重新安装项目依赖，或直接输入 BattleTag")
+        command = [executable, str(path), "stdout", "-l", "chi_sim+eng", "--psm", "11", "tsv"]
+    process = await asyncio.create_subprocess_exec(
+        *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        creationflags=0x08000000 if os.name == "nt" else 0)
+    try:
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=45)
+    except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+        if process.returncode is None:
             process.kill()
-            await process.communicate()
-            raise RuntimeError("图片识别超时，请裁剪截图后重试")
-        if process.returncode:
-            raise RuntimeError("中文 OCR 不可用，请安装系统中文识别语言包，或直接输入 BattleTag")
-        result = json.loads(stdout.decode("utf-8-sig").strip()) if sys.platform == "win32" else {
-            "text": stdout.decode("utf-8"), "engine": "Tesseract", "language": "chi_sim+eng"}
-    tags, corrections = extract_tags(result["text"])
-    return {"battletags": tags, "corrections": corrections, "text": result["text"], "engine": result["engine"], "language": result["language"]}
+        await process.communicate()
+        if isinstance(exc, asyncio.CancelledError):
+            raise
+        raise RuntimeError("识别超时，请框选账号列表后重试") from exc
+    if process.returncode:
+        raise RuntimeError("备用 OCR 不可用，请安装中文识别语言包，或直接输入 BattleTag")
+    text = stdout.decode("utf-8-sig").strip()
+    if sys.platform == "win32":
+        return json.loads(text)
+    regions = []
+    if text.startswith("level\t"):
+        for row in csv.DictReader(io.StringIO(text), delimiter="\t"):
+            if not row.get("text", "").strip():
+                continue
+            x,y,w,h = (float(row[key]) for key in ("left","top","width","height"))
+            regions.append({"text":row["text"],"confidence":max(0,float(row["conf"]))/100,"box":[x,y,x+w,y+h]})
+        text = "\n".join(r["text"] for r in regions)
+    return {"text":text,"regions":regions,"engine":"Tesseract","language":"chi_sim+eng"}
+
+
+async def _recognize_native(image: Image.Image) -> dict:
+    spans, texts, last, legacy = [], [], {}, []
+    with tempfile.TemporaryDirectory(prefix="ow-rating-ocr-") as temporary:
+        for pass_id,(variant,scale) in enumerate(image_variants(image)):
+            last = await _native_pass(variant,Path(temporary),pass_id)
+            texts.append(last["text"])
+            regions = last.get("regions") or []
+            if not regions:
+                try:
+                    tags, changes = extract_tags(last["text"])
+                    legacy.append((tags,changes))
+                except ValueError:
+                    pass
+            for span in regions:
+                spans.append({"text":span["text"],"confidence":span.get("confidence",.8),"pass":f"native:{pass_id}",
+                              "box":[value/scale for value in span["box"]]})
+    if spans:
+        candidates, corrections = vote_candidates(candidates_from_spans(spans))
+        tags = [c["battletag"] for c in candidates]
+    elif legacy:
+        tags, corrections = legacy[0]
+        candidates = [{"battletag":t,"confidence":None,"needs_review":True,"reasons":[],"alternatives":[],"agreement":1} for t in tags]
+    else:
+        raise ValueError("没有识别到完整 BattleTag，请框选账号列表后重试，或手动输入")
+    for candidate in candidates:
+        candidate["needs_review"] = True
+        candidate["reasons"].append("使用系统备用识别，请核对")
+    return {"battletags":tags,"candidates":candidates,"corrections":corrections,"text":"\n".join(texts),
+            "engine":last["engine"],"language":last["language"],"review_count":len(candidates),"passes":2,
+            "warnings":["精度增强识别暂不可用，已使用系统备用识别；请核对昵称与编号。"]}
+
+
+async def recognize_image(encoded: str) -> dict:
+    image = decode_image(encoded)
+    try:
+        # The model and screenshots stay on this host; only public model files download.
+        result = await asyncio.to_thread(recognize_neural,image)
+    except Exception as exc:
+        logger.warning("Enhanced OCR unavailable (%s); using local fallback.",type(exc).__name__)
+        result = await _recognize_native(image)
+    result["image_size"] = {"width":image.width,"height":image.height}
+    if max(image.size)<500:
+        result["warnings"].append("截图尺寸较小，可框选账号列表或使用原始截图，以减少错字。")
+    return result

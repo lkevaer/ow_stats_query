@@ -10,7 +10,7 @@ from typing import Any
 import uuid
 
 from .ocr import normalize_tags, recognize_image
-from .scoring import VERSION, RELATIVE_NOTICE, aggregate_player, grouped_summary, rank_players, score_match
+from .scoring import VERSION, RELATIVE_NOTICE, SCOPE_NOTICE, aggregate_player, grouped_summary, rank_players, score_match
 
 MODE_MAP = {"leisure": "leisure", "competitive": "sport"}
 MODE_NAMES = {"leisure": "休闲", "competitive": "竞技"}
@@ -136,7 +136,7 @@ class BatchRatingService:
         ordered = sorted(found.values(), key=lambda x: float(x.get("beginTs") or 0), reverse=True)
         return ordered[:MATCH_LIMIT], scanned
 
-    async def _one_player(self, battletag: str, mode: str, heroes: dict, maps: dict, progress):
+    async def _one_player(self, battletag: str, mode: str, heroes: dict, maps: dict, ranks: list[dict], progress):
         try:
             progress(f"正在解析 {battletag}")
             search = await self._request(self.state.bnet_search.search, battletag, render=False)
@@ -154,7 +154,7 @@ class BatchRatingService:
                     payload = await self._request(self.state.api_client.query_match_info, customer_token, str(source["matchId"]))
                     data = _extract_match_detail_data(payload)
                     scored = score_match(data, source, customer_token=customer_token, bnet_id=str(identity.bnet_id or ""),
-                                         battletag=str(identity.full_id or battletag), heroes=heroes, maps=maps)
+                                         battletag=str(identity.full_id or battletag), heroes=heroes, maps=maps, ranks=ranks)
                     rated.append(scored)
                 except (QueryFailure, ValueError) as exc:
                     errors.append({"match_id": str(source.get("matchId") or ""), "error": str(exc)})
@@ -181,6 +181,7 @@ class BatchRatingService:
         config = await asyncio.to_thread(load_query_tool)
         heroes = {str(h["heroGuid"]): h for h in config.get("heroList", []) if h.get("heroGuid")}
         maps = {str(m.get("guid") or m.get("mapGuid")): m for m in config.get("mapList", []) if m.get("guid") or m.get("mapGuid")}
+        ranks = [r for r in config.get("rankList",[]) if isinstance(r,dict)]
         for hero in heroes.values():
             if str(hero.get("name", "")).lower() in {"血律", "doctrine", "黑影", "sombra"}:
                 hero["roleType"] = "healer"
@@ -197,7 +198,7 @@ class BatchRatingService:
                     stages[tag] = stage
                     if progress:
                         progress(stage, 5 + 90 * completed / len(tags), completed)
-                result = await self._one_player(tag, mode, heroes, maps, update)
+                result = await self._one_player(tag, mode, heroes, maps, ranks, update)
                 results.append(result)
                 completed += 1
                 if progress:
@@ -207,6 +208,6 @@ class BatchRatingService:
         ranked = rank_players(results)
         return {"mode": mode, "mode_label": MODE_NAMES[mode], "matches_per_player": MATCH_LIMIT,
                 "generated_at": datetime.now().astimezone().isoformat(), "players": ranked, "summary_text": grouped_summary(ranked),
-                "recognized": prepared, "scoring_version": VERSION, "relative_notice": RELATIVE_NOTICE, "hero_registry_count": len(heroes),
+                "recognized": prepared, "scoring_version": VERSION, "relative_notice": RELATIVE_NOTICE, "scope_notice":SCOPE_NOTICE, "hero_registry_count": len(heroes),
                 "summary": {"requested_players": len(tags), "rated_players": sum(p["score"] is not None for p in results),
                             "complete_players": sum(p["rated_matches"] == 12 for p in results), "rated_matches": sum(p["rated_matches"] for p in results)}}

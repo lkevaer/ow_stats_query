@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 import math
 import statistics
+from .rank import match_rank
 
 VERSION = "team-relative-2026s5-v3"
 ROLE_LABELS = {"tank": "坦克", "dps": "输出", "support": "辅助"}
@@ -13,6 +14,7 @@ WEIGHTS = {
 }
 FIELDS = {"damage": "heroDamage", "final_blows": "finalHit", "survival": "death", "eliminations": "kill", "healing": "cure", "assists": "assist", "mitigation": "resistDamage"}
 RELATIVE_NOTICE = "上下等马仅在本次查询名单内相对区分；相对评分不代表绝对水平。"
+SCOPE_NOTICE = "本页面对于上下等马的评级仅限于账号本身匹配池的近12场游戏数据，不考虑段位高低对于对局水平含金量的影响。因此如果名单段位跨度过大可能会出现低段位的评级比高段位的高的情况，这种情况是正常的。所以最佳适用场景是在自己竞技模式匹配到了之后，通过屏蔽其余队友查看ID的方法，查询队内五人的评级。"
 HERO_SCORE_FACTORS = {"207165582859042820": .72, "mercy": .72, "天使": .72}
 
 
@@ -83,7 +85,7 @@ def _asset_url(value) -> str | None:
     return value if isinstance(value, str) and value.startswith("https://") else None
 
 
-def score_match(data: dict, source: dict, *, customer_token: str, bnet_id: str, battletag: str, heroes: dict, maps: dict | None = None) -> dict:
+def score_match(data: dict, source: dict, *, customer_token: str, bnet_id: str, battletag: str, heroes: dict, maps: dict | None = None, ranks: list[dict] | None = None) -> dict:
     own, team = None, []
     teams = [[p for p in data.get(key, []) if isinstance(p, dict)] for key in ("teammateList", "enemyList")]
     for players in teams:
@@ -191,6 +193,7 @@ def score_match(data: dict, source: dict, *, customer_token: str, bnet_id: str, 
         "fleta": round(fleta, 6) if fleta is not None else None,
         "team_final_blows": total_finals if share is not None else None, "team_size": len(team),
         "outcome": outcome, "outcome_label": "胜" if outcome == 1 else "平" if outcome == 0 else "负" if outcome is not None else "未知",
+        "rank": match_rank(own,source,ranks or []),
         "metrics": components, "adjustments": adjustments, "warnings": warnings,
         "stats": {key: numeric(own, key) for key in FIELDS.values()},
         "data_coverage": round(available_weight, 3), "sample_weight": round(duration_weight * stomp, 4),
@@ -217,9 +220,12 @@ def aggregate_player(battletag: str, matches: list[dict], *, fetched: int, error
     smurf = dominant_count >= 5
     outcomes = Counter(m["outcome_label"] for m in matches)
     known_outcomes = sum(outcomes[k] for k in ("胜", "负", "平"))
+    ranked_matches=sorted((m for m in matches if (m.get("rank") or {}).get("known")),key=lambda m:float(m.get("begin_ts") or 0),reverse=True)
+    latest_rank={**ranked_matches[0]["rank"],"role":ranked_matches[0]["role"],"role_label":ranked_matches[0]["role_label"],"match_begin_ts":ranked_matches[0]["begin_ts"]} if ranked_matches else None
     return {
         **base, "status": "complete" if len(matches) == 12 else "partial", "score": score,
         "grade": "SMURF" if smurf else grade(score), "score_grade": grade(score), "is_smurf": smurf,
+        "latest_rank":latest_rank,
         "smurf_matches": dominant_count, "smurf_threshold": 5,
         "confidence": round(min(1, len(matches) / 12) * statistics.mean(m["data_coverage"] for m in matches), 3),
         "roles": dict(roles), "primary_role": max(roles, key=roles.get), "grade_counts": dict(Counter(m["grade"] for m in matches)),

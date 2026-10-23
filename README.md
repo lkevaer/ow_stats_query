@@ -3,8 +3,8 @@
 基于 [DustEater/ow_stats_query](https://github.com/DustEater/ow_stats_query) 修改，保留完整查询服务、Web 页面和 Taro 客户端源码。
 
 - 普通查询：资料、对局、英雄、段位历史等。
-- **队友评分/上下等马查询**：上传截图或输入多个 BattleTag，分别查询近12场休闲或竞技，生成详细表格与可复制的简短文字。
-- 逐场英雄头像、地图图标、胜负、最后一击占比、Fleta、伤害、治疗、阵亡和加减分；碾压局降权、SMURF 标记。
+- **队友评分/上下等马查询**：上传截图或输入多个 BattleTag，分别查询近12场休闲或竞技，生成详细表格与可复制的简短文字。支持框选账号列表重试，有分歧的文字会标记并提供候选。
+- 逐场英雄头像、地图图标、竞技段位与图标、红绿胜负箭头、最后一击占比、Fleta、伤害、治疗、阵亡和加减分；碾压局降权、SMURF 标记。
 - 不需要 AI 密钥即可查询及评分。
 
 ## Windows 运行
@@ -18,13 +18,15 @@ python -m venv .venv
 
 双击 `configure_account.cmd`，按 [LOGIN.md](LOGIN.md) 填入自己的网易大神业务凭据，随后服务自动启动。已配置账号时双击 `start_local.cmd`，停止使用 `stop_local.cmd`。
 
-打开 [本机首页](http://127.0.0.1:41888/) 或 [队友评分](http://127.0.0.1:41888/batch-rating)。截图识别使用 Windows 中文 OCR，需要系统安装中文识别组件。
+打开 [本机首页](http://127.0.0.1:41888/) 或 [队友评分](http://127.0.0.1:41888/batch-rating)。截图识别优先使用本地 RapidOCR PP-OCRv6，多次识别比对并对疑问行重试。首次使用会下载公开模型，图片始终在服务本地处理。Windows 系统 OCR 作为备用。
 
 配置优先使用环境变量；没有 `api_server/config.yaml` 时会读取安全的 `config.yaml.example`，无需复制私有配置文件。
 
+本地识别引擎的模型与使用说明见 [RapidOCR 官方文档](https://rapidai.github.io/RapidOCRDocs/main/install_usage/rapidocr/usage/)。
+
 ## Docker 运行
 
-Docker 镜像内置 Tesseract 简体中文与英文识别。
+Docker 构建时会下载并自检增强中文模型，镜像内保留 Tesseract 简体中文与英文备用识别。模型文件随镜像保存，不上传到 Git 仓库。
 
 ```sh
 cp .env.example .env
@@ -38,7 +40,7 @@ docker compose up -d --build
 
 ## Linux / macOS
 
-安装 Python 3.11+，执行 `bash start_api.sh`；停止使用 `bash stop_api.sh`。图片识别另需 Tesseract 与 `chi_sim`、`eng` 语言包。也可以直接输入 BattleTag。
+安装 Python 3.11+，执行 `bash start_api.sh`；停止使用 `bash stop_api.sh`。增强识别随 Python 依赖安装，备用识别可另装 Tesseract 与 `chi_sim`、`eng` 语言包。也可以直接输入 BattleTag。
 
 ## 评分与接口
 
@@ -49,9 +51,13 @@ docker compose up -d --build
 ```sh
 python -m unittest discover -s tests -v
 node --check api_server/static/batch_rating.js
+node --test tests/test_ocr_ui.cjs
+node --test tests/test_rating_ui.cjs
 ```
 
 GitHub Actions 会检查评分与查询逻辑，并构建、启动 Docker 镜像。GitHub 仓库存放完整代码；运行查询服务需要 Python 或 Docker，GitHub Pages 无法运行此后端。
+
+QQ群机器人需求见 [BOT_BACKLOG.md](BOT_BACKLOG.md)，绑定自己、自动凑齐队伍与默认查询本人将在部署机器人时实现。
 
 ## 文件与授权
 

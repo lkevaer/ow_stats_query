@@ -30,6 +30,12 @@ try {
     try {
         $result = Await-Result ($engine.RecognizeAsync($converted)) ([Windows.Media.Ocr.OcrResult])
         $lines = @($result.Lines | ForEach-Object { $_.Text })
-        @{ text = ($lines -join "`n"); lines = $lines; language = $engine.RecognizerLanguage.LanguageTag; engine = 'windows-ocr' } | ConvertTo-Json -Compress -Depth 4
+        $regions = @($result.Lines | ForEach-Object {
+            foreach ($word in $_.Words) {
+                $rect = $word.BoundingRect
+                @{ text = $word.Text; box = @($rect.X, $rect.Y, ($rect.X + $rect.Width), ($rect.Y + $rect.Height)) }
+            }
+        })
+        @{ text = ($lines -join "`n"); lines = $lines; regions = $regions; language = $engine.RecognizerLanguage.LanguageTag; engine = 'windows-ocr' } | ConvertTo-Json -Compress -Depth 6
     } finally { $converted.Dispose(); $bitmap.Dispose() }
 } finally { $stream.Dispose() }

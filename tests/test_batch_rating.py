@@ -302,6 +302,7 @@ class OCRRuntimeTests(unittest.IsolatedAsyncioTestCase):
         Image.new("RGB", (50, 50), "white").save(image, format="PNG")
         process = SimpleNamespace(returncode=0, communicate=AsyncMock(return_value=("队 友 甲 # 1234".encode(), b"")))
         with patch("api_server.batch_rating.ocr.sys.platform", "linux"), \
+             patch("api_server.batch_rating.ocr.recognize_neural", side_effect=ImportError("fallback test")), \
              patch("api_server.batch_rating.ocr.shutil.which", return_value="/usr/bin/tesseract"), \
              patch("api_server.batch_rating.ocr.asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=process) as execute:
             result = await recognize_image(base64.b64encode(image.getvalue()).decode())
