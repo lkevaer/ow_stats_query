@@ -1,0 +1,482 @@
+{
+  "source_url": "https://overwatch.nexon.com/hero/rate",
+  "names_source_url": "https://ld5.res.netease.com/pc/zt/20241115153332/static/heroConfigs.json",
+  "filters": {
+    "roles": [
+      {
+        "value": "all",
+        "name": "全部位置",
+        "parentValue": "",
+        "hexValue": ""
+      },
+      {
+        "value": "damage",
+        "name": "输出",
+        "parentValue": "",
+        "hexValue": ""
+      },
+      {
+        "value": "flanker",
+        "name": "奇袭",
+        "parentValue": "damage",
+        "hexValue": ""
+      },
+      {
+        "value": "sharpshooter",
+        "name": "神准",
+        "parentValue": "damage",
+        "hexValue": ""
+      },
+      {
+        "value": "specialist",
+        "name": "专业",
+        "parentValue": "damage",
+        "hexValue": ""
+      },
+      {
+        "value": "recon",
+        "name": "侦察",
+        "parentValue": "damage",
+        "hexValue": ""
+      },
+      {
+        "value": "support",
+        "name": "辅助",
+        "parentValue": "",
+        "hexValue": ""
+      },
+      {
+        "value": "medic",
+        "name": "医疗",
+        "parentValue": "support",
+        "hexValue": ""
+      },
+      {
+        "value": "tactician",
+        "name": "战术",
+        "parentValue": "support",
+        "hexValue": ""
+      },
+      {
+        "value": "survivor",
+        "name": "生存",
+        "parentValue": "support",
+        "hexValue": ""
+      },
+      {
+        "value": "tank",
+        "name": "坦克",
+        "parentValue": "",
+        "hexValue": ""
+      },
+      {
+        "value": "stalwart",
+        "name": "铁壁",
+        "parentValue": "tank",
+        "hexValue": ""
+      },
+      {
+        "value": "initiator",
+        "name": "先锋",
+        "parentValue": "tank",
+        "hexValue": ""
+      },
+      {
+        "value": "bruiser",
+        "name": "斗士",
+        "parentValue": "tank",
+        "hexValue": ""
+      }
+    ],
+    "inputs": [
+      {
+        "value": "pc",
+        "name": "PC",
+        "parentValue": "",
+        "hexValue": ""
+      },
+      {
+        "value": "console",
+        "name": "主机",
+        "parentValue": "",
+        "hexValue": ""
+      }
+    ],
+    "rulesetQueues": [
+      {
+        "value": "0",
+        "name": "快速比赛 · 职责预选",
+        "parentValue": "",
+        "hexValue": "0x0630000000000149"
+      },
+      {
+        "value": "2",
+        "name": "竞技比赛 · 职责预选",
+        "parentValue": "",
+        "hexValue": "0x0630000000000328"
+      }
+    ],
+    "ranks": [
+      {
+        "value": "all",
+        "name": "所有段位",
+        "parentValue": "",
+        "hexValue": ""
+      },
+      {
+        "value": "bronze",
+        "name": "青铜",
+        "parentValue": "",
+        "hexValue": ""
+      },
+      {
+        "value": "silver",
+        "name": "白银",
+        "parentValue": "",
+        "hexValue": ""
+      },
+      {
+        "value": "gold",
+        "name": "黄金",
+        "parentValue": "",
+        "hexValue": ""
+      },
+      {
+        "value": "platinum",
+        "name": "铂金",
+        "parentValue": "",
+        "hexValue": ""
+      },
+      {
+        "value": "emerald",
+        "name": "翡翠",
+        "parentValue": "",
+        "hexValue": ""
+      },
+      {
+        "value": "diamond",
+        "name": "钻石",
+        "parentValue": "",
+        "hexValue": ""
+      },
+      {
+        "value": "master",
+        "name": "大师",
+        "parentValue": "",
+        "hexValue": ""
+      },
+      {
+        "value": "grandmaster",
+        "name": "宗师与冠军",
+        "parentValue": "",
+        "hexValue": ""
+      }
+    ],
+    "maps": [
+      {
+        "value": "all",
+        "name": "所有地图",
+        "parentValue": "",
+        "hexValue": "0x00000000FFFFFFFF"
+      },
+      {
+        "value": "control",
+        "name": "占领要点",
+        "parentValue": "battlefield",
+        "hexValue": ""
+      },
+      {
+        "value": "antarctic-peninsula",
+        "name": "南极半岛",
+        "parentValue": "control",
+        "hexValue": "0x0800000000000CF2"
+      },
+      {
+        "value": "nepal",
+        "name": "尼泊尔",
+        "parentValue": "control",
+        "hexValue": "0x08000000000004B7"
+      },
+      {
+        "value": "lijiang-tower",
+        "name": "漓江塔",
+        "parentValue": "control",
+        "hexValue": "0x0800000000000662"
+      },
+      {
+        "value": "busan",
+        "name": "釜山",
+        "parentValue": "control",
+        "hexValue": "0x08000000000007E2"
+      },
+      {
+        "value": "samoa",
+        "name": "萨摩亚",
+        "parentValue": "control",
+        "hexValue": "0x0800000000000EC0"
+      },
+      {
+        "value": "oasis",
+        "name": "绿洲城",
+        "parentValue": "control",
+        "hexValue": "0x080000000000069E"
+      },
+      {
+        "value": "ilios",
+        "name": "伊利奥斯",
+        "parentValue": "control",
+        "hexValue": "0x080000000000066D"
+      },
+      {
+        "value": "escort",
+        "name": "运载目标",
+        "parentValue": "battlefield",
+        "hexValue": ""
+      },
+      {
+        "value": "route-66",
+        "name": "66号公路",
+        "parentValue": "escort",
+        "hexValue": "0x08000000000005BB"
+      },
+      {
+        "value": "watchpoint-gibraltar",
+        "name": "监测站：直布罗陀",
+        "parentValue": "escort",
+        "hexValue": "0x0800000000000184"
+      },
+      {
+        "value": "grimsvotn",
+        "name": "格里姆火山",
+        "parentValue": "escort",
+        "hexValue": "0x08000000000013BA"
+      },
+      {
+        "value": "dorado",
+        "name": "多拉多",
+        "parentValue": "escort",
+        "hexValue": "0x08000000000002C3"
+      },
+      {
+        "value": "rialto",
+        "name": "里阿尔托",
+        "parentValue": "escort",
+        "hexValue": "0x0800000000000871"
+      },
+      {
+        "value": "shambali-monastery",
+        "name": "香巴里寺院",
+        "parentValue": "escort",
+        "hexValue": "0x0800000000000C85"
+      },
+      {
+        "value": "circuit-royal",
+        "name": "皇家赛道",
+        "parentValue": "escort",
+        "hexValue": "0x0800000000000827"
+      },
+      {
+        "value": "junkertown",
+        "name": "渣客镇",
+        "parentValue": "escort",
+        "hexValue": "0x0800000000000756"
+      },
+      {
+        "value": "havana",
+        "name": "哈瓦那",
+        "parentValue": "escort",
+        "hexValue": "0x0800000000000A44"
+      },
+      {
+        "value": "flashpoint",
+        "name": "闪点作战",
+        "parentValue": "battlefield",
+        "hexValue": ""
+      },
+      {
+        "value": "new-junk-city",
+        "name": "新渣客城",
+        "parentValue": "flashpoint",
+        "hexValue": "0x0800000000000E13"
+      },
+      {
+        "value": "suravasa",
+        "name": "苏拉瓦萨",
+        "parentValue": "flashpoint",
+        "hexValue": "0x0800000000000D3E"
+      },
+      {
+        "value": "aatlis",
+        "name": "阿特利斯",
+        "parentValue": "flashpoint",
+        "hexValue": "0x0800000000000F35"
+      },
+      {
+        "value": "hybrid",
+        "name": "攻击/护送",
+        "parentValue": "battlefield",
+        "hexValue": ""
+      },
+      {
+        "value": "neon-junction",
+        "name": "霓虹枢纽",
+        "parentValue": "hybrid",
+        "hexValue": "0x080000000000102C"
+      },
+      {
+        "value": "numbani",
+        "name": "努巴尼",
+        "parentValue": "hybrid",
+        "hexValue": "0x08000000000001D4"
+      },
+      {
+        "value": "midtown",
+        "name": "中城",
+        "parentValue": "hybrid",
+        "hexValue": "0x0800000000000B4C"
+      },
+      {
+        "value": "blizzard-world",
+        "name": "暴雪世界",
+        "parentValue": "hybrid",
+        "hexValue": "0x080000000000075E"
+      },
+      {
+        "value": "eichenwalde",
+        "name": "艾兴瓦尔德",
+        "parentValue": "hybrid",
+        "hexValue": "0x080000000000068D"
+      },
+      {
+        "value": "kings-row",
+        "name": "国王大道",
+        "parentValue": "hybrid",
+        "hexValue": "0x08000000000000D4"
+      },
+      {
+        "value": "paraiso",
+        "name": "帕拉伊苏",
+        "parentValue": "hybrid",
+        "hexValue": "0x0800000000000938"
+      },
+      {
+        "value": "hollywood",
+        "name": "好莱坞",
+        "parentValue": "hybrid",
+        "hexValue": "0x08000000000002AF"
+      },
+      {
+        "value": "push",
+        "name": "机动推进",
+        "parentValue": "battlefield",
+        "hexValue": ""
+      },
+      {
+        "value": "new-queen-street",
+        "name": "新皇后街",
+        "parentValue": "push",
+        "hexValue": "0x0800000000000AEB"
+      },
+      {
+        "value": "runasapi",
+        "name": "鲁纳塞彼",
+        "parentValue": "push",
+        "hexValue": "0x0800000000000EB2"
+      },
+      {
+        "value": "esperanca",
+        "name": "埃斯佩兰萨",
+        "parentValue": "push",
+        "hexValue": "0x0800000000000D53"
+      },
+      {
+        "value": "colosseo",
+        "name": "斗兽场",
+        "parentValue": "push",
+        "hexValue": "0x0800000000000B34"
+      }
+    ],
+    "regions": [
+      {
+        "value": "korea",
+        "name": "韩服",
+        "parentValue": "",
+        "hexValue": ""
+      },
+      {
+        "value": "asia",
+        "name": "亚洲",
+        "parentValue": "",
+        "hexValue": ""
+      },
+      {
+        "value": "americas",
+        "name": "美洲",
+        "parentValue": "",
+        "hexValue": ""
+      },
+      {
+        "value": "europe",
+        "name": "欧洲",
+        "parentValue": "",
+        "hexValue": ""
+      }
+    ]
+  },
+  "hero_names": {
+    "doctrine": "血律",
+    "dmon": "D.Mon",
+    "shion": "死怨",
+    "sierra": "西拉",
+    "anran": "安燃",
+    "emre": "埃姆雷",
+    "jetpack-cat": "飞天猫",
+    "mizuki": "瑞稀",
+    "domina": "金驭",
+    "vendetta": "斩仇",
+    "wuyang": "无漾",
+    "freja": "弗蕾娅",
+    "ashe": "艾什",
+    "ana": "安娜",
+    "orisa": "奥丽莎",
+    "baptiste": "巴蒂斯特",
+    "hanzo": "半藏",
+    "bastion": "堡垒",
+    "brigitte": "布丽吉塔",
+    "zarya": "查莉娅",
+    "zenyatta": "禅雅塔",
+    "dva": "D.VA",
+    "pharah": "法老之鹰",
+    "widowmaker": "黑百合",
+    "sombra": "黑影",
+    "hazard": "骇灾",
+    "echo": "回声",
+    "cassidy": "卡西迪",
+    "junkrat": "狂鼠",
+    "ramattra": "拉玛刹",
+    "reinhardt": "莱因哈特",
+    "tracer": "猎空",
+    "lucio": "卢西奥",
+    "roadhog": "路霸",
+    "mauga": "毛加",
+    "mei": "美",
+    "doomfist": "末日铁拳",
+    "moira": "莫伊拉",
+    "wrecking-ball": "破坏球",
+    "lifeweaver": "生命之梭",
+    "soldier-76": "士兵：76",
+    "reaper": "死神",
+    "sojourn": "索杰恩",
+    "venture": "探奇",
+    "mercy": "天使",
+    "torbjorn": "托比昂",
+    "winston": "温斯顿",
+    "kiriko": "雾子",
+    "sigma": "西格玛",
+    "illari": "伊拉锐",
+    "genji": "源氏",
+    "junker-queen": "渣客女王",
+    "symmetra": "秩序之光",
+    "juno": "朱诺"
+  }
+}

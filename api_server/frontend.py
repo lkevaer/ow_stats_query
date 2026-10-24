@@ -13,8 +13,8 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 _ASSET_REFERENCE = re.compile(r'(?P<attribute>(?:href|src))="/static/(?P<name>[\w.-]+\.(?:css|js))"')
 
 
-def rating_page(static_dir: Path = STATIC_DIR) -> HTMLResponse:
-    html = (static_dir / "batch_rating.html").read_text(encoding="utf-8")
+def rating_page(static_dir: Path = STATIC_DIR, *, page: str = "batch_rating.html") -> HTMLResponse:
+    html = (static_dir / page).read_text(encoding="utf-8")
 
     def versioned(match: re.Match) -> str:
         data = (static_dir / match["name"]).read_bytes()

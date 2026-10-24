@@ -12,7 +12,7 @@ _TAG = re.compile(r"([^#\s,，;；|]{1,32})#+(" + _SUFFIX + r")(?![0-9A-Za-z])")
 _UI_LABELS = {"屏蔽列表", "好友列表", "玩家列表", "最近玩家", "队友名单", "战网昵称", "等级", "伤害", "治疗", "击杀", "助攻", "阵亡", "完成", "取消屏蔽"}
 
 
-def normalize_tags(tags: list[str]) -> list[str]:
+def normalize_tags(tags: list[str], *, max_players: int = MAX_PLAYERS) -> list[str]:
     result, seen = [], set()
     for raw in tags:
         tag = unicodedata.normalize("NFKC", str(raw)).strip()
@@ -23,8 +23,8 @@ def normalize_tags(tags: list[str]) -> list[str]:
             seen.add(tag.casefold())
     if not result:
         raise ValueError("没有识别到完整 BattleTag，请框选账号列表重试，或输入 昵称#数字")
-    if len(result) > MAX_PLAYERS:
-        raise ValueError(f"每批最多 {MAX_PLAYERS} 位玩家，请分批查询")
+    if len(result) > max_players:
+        raise ValueError(f"每批最多 {max_players} 位玩家，请分批查询")
     return result
 
 

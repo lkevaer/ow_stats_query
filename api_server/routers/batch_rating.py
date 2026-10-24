@@ -17,6 +17,7 @@ class RatingRequest(BaseModel):
     battletags: list[Annotated[str, Field(max_length=64)]] = Field(default_factory=list, max_length=32)
     image_base64: str | None = Field(None, max_length=11_185_100, description="截图 Base64，可包含 data:image/... 前缀；与 battletags 二选一")
     wait: bool = Field(False, description="默认异步返回 task_id；设 true 等待完整结果")
+    full_match: bool = Field(False, description="网页查询当局名单，允许最多12人以兼容6v6对局")
 
 
 class ImageRequest(BaseModel):
@@ -35,7 +36,7 @@ async def _query(mode, body, response, state):
     if worker is None:
         raise HTTPException(503, "批量评分尚未初始化")
     try:
-        prepared = await worker.prepare(body.battletags, body.image_base64)
+        prepared = await worker.prepare(body.battletags, body.image_base64, full_match=body.full_match)
         if body.wait:
             return {"success": True, "data": await worker.query(mode, prepared)}
         response.status_code = 202

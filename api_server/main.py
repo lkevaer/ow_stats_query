@@ -82,6 +82,7 @@ app.add_middleware(
 ALLOW_WITHOUT_KEY_PREFIXES = (
     "/",
     "/batch-rating",
+    "/hero-rates",
     "/static/",
     "/health",
     "/healthz",
@@ -356,6 +357,11 @@ async def root():
     return rating_page()
 
 
+@app.get("/hero-rates", include_in_schema=False)
+async def hero_rates_page():
+    return rating_page(page="hero_rates.html")
+
+
 @app.get("/health", include_in_schema=False)
 async def health():
     return {"status": "ok", "api_key_required": bool(_server_cfg.get("api_key"))}
@@ -445,6 +451,8 @@ from .routers.task import router as task_router  # noqa: E402
 app.include_router(task_router)
 from .routers.batch_rating import router as batch_rating_router  # noqa: E402
 app.include_router(batch_rating_router)
+from .routers.hero_rates import router as hero_rates_router  # noqa: E402
+app.include_router(hero_rates_router)
 
 
 @app.get("/batch-rating", include_in_schema=False)

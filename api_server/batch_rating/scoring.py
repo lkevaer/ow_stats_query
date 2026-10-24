@@ -4,6 +4,7 @@ from collections import Counter
 import math
 import statistics
 from .rank import match_rank
+from .ocr_candidates import normalize_tags
 from .context import death_context, kd_stats, match_weights, numeric, party_info, support_survival, survival_points
 
 VERSION = "team-relative-2026s5-v7"
@@ -231,6 +232,35 @@ def _score_player(data: dict, source: dict, *, own: dict, team: list[dict], oppo
     }
 
 
+def match_roster(data: dict) -> dict:
+    """Expose only complete public BattleTags; never substitute internal tokens."""
+    teams = [data.get("teammateList") or [], data.get("enemyList") or []]
+    tags = []
+    name_map = data.get("nameMap") or {}
+    for team in teams:
+        for player in team:
+            if not isinstance(player, dict):
+                continue
+            mapped = name_map.get(str(player.get("bnetId") or "")) if isinstance(name_map, dict) else None
+            candidates = [player.get(key) for key in ("battletag", "battleTag", "name", "bnetId")]
+            if isinstance(mapped, str):
+                candidates.append(mapped)
+            for candidate in candidates:
+                if not isinstance(candidate, str):
+                    continue
+                try:
+                    tags.append(normalize_tags([candidate])[0])
+                    break
+                except ValueError:
+                    continue
+    try:
+        tags = normalize_tags(tags, max_players=12)
+    except ValueError:
+        tags = []
+    complete = len(teams[0]) in (5, 6) and len(teams[0]) == len(teams[1]) and len(tags) == sum(map(len, teams))
+    return {"participants": tags, "roster_complete": complete}
+
+
 def score_match(data: dict, source: dict, *, customer_token: str, bnet_id: str, battletag: str,
                 heroes: dict, maps: dict | None = None, ranks: list[dict] | None = None) -> dict:
     own, side = None, 0
@@ -274,6 +304,7 @@ def score_match(data: dict, source: dict, *, customer_token: str, bnet_id: str, 
                   mvp_compared_players=len(scores) if all(len(t) == 5 for t in teams) else 0,
                   mvp_comparison_complete=complete,
                   mvp_note="按当局完整十人自定义评分比较，同分可并列" if complete else "十人可评分数据不完整，未判定MVP")
+    result.update(match_roster(data))
     return result
 
 

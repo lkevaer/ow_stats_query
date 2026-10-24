@@ -1,0 +1,32 @@
+# 英雄胜率与整局名单查询
+
+首页顶部的“韩服英雄胜率数据”进入 `/hero-rates`。默认是全部角色、竞技职责预选、大师、所有地图、PC、韩服，按胜率从高到低排列。保留原站全部角色及细分位置、模式、段位、地图、平台和地区选项。与原站一致，韩服不提供主机数据，快速比赛不按段位筛选。
+
+## 数据与缓存
+
+- 来源：[Nexon 英雄统计](https://overwatch.nexon.com/hero/rate?role=tank&rq=2&rank=master&map=all&input=pc&region=korea)。读取公开页面的服务端统计数据，不执行下载的 JavaScript。
+- 中文英雄名来源：[国服官网英雄配置](https://ld5.res.netease.com/pc/zt/20241115153332/static/heroConfigs.json)，地图名与当前项目的国服配置对应。
+- 筛选目录和国服英雄名保存在 `api_server/hero_rates_catalog.json`。原站统计横幅随静态资源保存，来源为 Nexon 官方页面。
+- 统计快照保存到 `data/hero_rates/`，也可通过 `OW_HERO_RATES_CACHE_DIR` 指定目录。目录应持久化。
+- 大师、全图、PC、韩服、竞技组合启动后自动预热。角色和细分位置在同一份全部英雄快照中本地筛选，不额外抓取。
+- 其他筛选组合首次使用时建立缓存。成功抓取后24小时内直接读缓存，后台每5分钟检查到期快照并更新，不因刷新网页、点击排序或反复切换角色而重复抓取。
+- 同一组合的并发请求只建立一次快照。失败保留上次成功数据及其真实更新时间，5分钟后才重试；没有缓存时明确返回503，不拿其他筛选条件的数据冒充。
+
+## 接口
+
+```text
+GET /api/hero-rates/filters
+GET /api/hero-rates?role=all&rq=2&rank=master&map=all&input=pc&region=korea
+```
+
+返回 `success` 与 `data`，其中包含 `heroes`、`filters`、中文 `filter_labels`、`fetched_at`、`refresh_after`、`stale` 与 `source_url`。比例直接使用原站的百分数，未知值保留为null。接口默认按胜率降序，网页表头允许本地切换排序。
+
+机器人 `/韩服数据 坦克`、`/韩服数据 输出`、`/韩服数据 辅助` 分别使用 `tank`、`damage`、`support`，固定 `rq=2&rank=master&map=all&input=pc&region=korea`。通过独立机器人仓库的网页渲染器输出完整中文 PNG。
+
+## 网页查询当局
+
+每场评分结果附 `participants` 和 `roster_complete`，只包含公开完整 BattleTag，不返回内部customerToken。网页详情最左侧“查询当局”填入该场两队完整名单，并按当前竞技/休闲模式自动开始新一轮近12场查询，不额外合并局外绑定账号。
+
+普通手动或截图名单仍最多10人。整局按钮通过 `full_match=true` 允许最多12人，兼容5v5及6v6记录。名单缺失、隐藏或重复时禁用按钮，不自动猜测ID或截断名单。新查询会更新当前网址，避免刷新或分享后回到上一轮结果。
+
+完成的查询结果保留24小时到 `data/batch_rating_reports/`，服务重启后仍可通过 `/?task=<task_id>` 打开。机器人长图不显示网页按钮，附本次结果链接并强化页脚入口提示。

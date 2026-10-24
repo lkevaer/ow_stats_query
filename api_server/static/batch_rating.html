@@ -26,6 +26,7 @@
 <script defer src="/static/batch_rating_ocr.js"></script>
 </head>
 <body><main>
+<nav class="site-nav" aria-label="数据工具"><a class="hero-rates-entry" href="/hero-rates">韩服英雄胜率数据 <span aria-hidden="true">↗</span></a></nav>
 <header class="page-top">
 <div class="page-intro">
 <div class="eyebrow">TEAMMATE RATING · RECENT 12</div>
@@ -48,7 +49,7 @@
 <div><h2>1 · 上传或粘贴截图</h2><label class="drop" id="drop">选择图片、拖到这里，或按 Ctrl+V 粘贴截图<input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/bmp"><small>增强中文识别 · 本地处理 · 最大 8 MB</small></label>
 <div id="cropEditor" class="hidden"><p class="note">可在图上拖动框选账号列表，排除按钮、聊天等无关文字。</p><div id="cropStage" aria-label="拖动框选账号列表"><img id="preview" alt="原始账号截图，可拖动框选" draggable="false"><div id="cropSelection" class="hidden"></div></div><div class="actions"><button id="recognizeCrop" disabled data-ready="false">识别框选区域</button><button id="recognizeFull">重新识别整张图</button></div><div id="cropNote" class="note">尚未框选，当前识别整张图。</div></div>
 <div class="note" id="ocrNote" role="status"></div><div id="ocrWarnings" class="note"></div><div id="ocrReview"></div></div>
-<div><h2>2 · 检查账号列表</h2><label for="tags">每行一个完整 BattleTag，也可以直接输入</label><textarea id="tags" placeholder="昵称#12345&#10;另一位玩家#67890" spellcheck="false"></textarea><div class="note">合并本人后自动去重，最多10人。识别有误可直接修改。</div><div class="actions"><button id="leisure" class="primary">查询近12场休闲</button><button id="competitive" class="primary">查询近12场竞技</button></div></div>
+<div><h2>2 · 检查账号列表</h2><label for="tags">每行一个完整 BattleTag，也可以直接输入</label><textarea id="tags" placeholder="昵称#12345&#10;另一位玩家#67890" spellcheck="false"></textarea><div class="note">手动名单合并本人后去重，最多10人。“查询当局”支持完整10人或12人名单，不额外加入局外账号。识别有误可直接修改。</div><div class="actions"><button id="leisure" class="primary">查询近12场休闲</button><button id="competitive" class="primary">查询近12场竞技</button></div></div>
 </div>
 <div id="status" class="status" role="status">请选择截图或输入账号。</div><progress id="progress" value="0" max="100" class="hidden"></progress>
 <div id="accessSection" class="note hidden"><label for="accessKey">此服务需要访问码</label> <input id="accessKey" type="password" autocomplete="off" placeholder="输入管理员提供的访问码"></div>
@@ -87,4 +88,5 @@
 <li>上下等马只在本次名单内相对排序，同分同档。只有一位有效评分玩家时不分上下等马，请输入更多ID以比较；无数据不评级。评分不按段位修正对局含金量，名单段位差距过大时没有比较意义。</li>
 </ul></details>
 </section>
+<footer class="web-callout"><a href="https://lkevaer.xyz">访问 lkevaer.xyz</a><div><strong>进入网页版查询当局所有人评分评级</strong><span>展开每场详情，点击最左侧“查询当局”，自动填入完整名单并开始新一轮查询。完整评分规则见上方。</span></div></footer>
 </main></body></html>

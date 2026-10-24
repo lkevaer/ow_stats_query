@@ -1,5 +1,5 @@
 'use strict';
-let currentReport = null, polling = false;
+let currentReport = null, polling = false, querying = false;
 const $ = id => document.getElementById(id);
 let selfBinding = RatingAccount.read(document.cookie);
 function showBinding() {
@@ -43,7 +43,9 @@ const roleNames = {tank:'坦克 T',dps:'输出 C',support:'辅助 N'};
 const metricNames = {damage:'伤害',final_blows:'最后一击',survival:'生存',eliminations:'击杀',healing:'治疗',assists:'助攻',mitigation:'承伤',final_blow_share:'最后一击占比'};
 function status(text, error=false) { $('status').textContent=text; $('status').className='status'+(error?' error':''); }
 function busy(value) {
+  querying=value;
   for (const id of ['leisure','competitive','imageInput','recognizeFull']) if($(id)) $(id).disabled=value;
+  $('details').querySelectorAll?.('.query-match').forEach(button=>{button.disabled=value||button.dataset.complete!=='true';});
   if($('recognizeCrop')) $('recognizeCrop').disabled=value||$('recognizeCrop').dataset.ready!=='true';
   if($('cropStage')) $('cropStage').style.pointerEvents=value?'none':'';
 }
@@ -51,30 +53,34 @@ async function api(url, options={}) {
   const key=$('accessKey').value;
   const response=await fetch(url,{cache:'no-store',...options,headers:{...options.headers,...(key?{'X-API-Key':key}:{})}}); let body;
   try { body=await response.json(); } catch { throw new Error('服务响应异常，请确认服务正在运行'); }
-  if (!response.ok || !body.success) throw new Error(body.error || '请求失败');
+  if (!response.ok || !body.success) throw new Error(body.detail || body.error || '请求失败');
   return body.data;
 }
-async function poll(id) {
+async function poll(id, fromLink=false) {
   polling=true;
   while (polling) {
     const job=await api('/api/batch-rating/tasks/'+encodeURIComponent(id));
     $('progress').value=job.progress; status(job.stage+' · '+job.completed_players+'/'+job.total_players+' 位玩家');
-    if (job.status==='done') { polling=false;localStorage.removeItem('ow_batch_rating_task');render(job.result);status('查询完成。');return; }
+    if (job.status==='done') { polling=false;localStorage.removeItem('ow_batch_rating_task');render(job.result);status(fromLink?'已载入本次查询的缓存结果，可展开查看每场详情（缓存保留24小时）。':'查询完成。');return; }
     if (job.status==='error') { localStorage.removeItem('ow_batch_rating_task');throw new Error(job.error||'查询失败'); }
     await new Promise(resolve=>setTimeout(resolve,2000));
   }
 }
-async function query(mode) {
+async function query(mode, matchTags=null) {
+  if(querying)return;
   let tags;
   try {
     selfBinding = RatingAccount.read(document.cookie);
     showBinding();
-    tags = RatingAccount.roster($('tags').value, selfBinding);
+    tags = matchTags===null?RatingAccount.roster($('tags').value,selfBinding):RatingAccount.parseTags(matchTags.join('\n'));
+    if(matchTags!==null&&(!tags.length||tags.length>12))throw new Error('当局名单无效，未开始查询。');
   } catch (error) { status(error.message,true);return; }
   busy(true);$('progress').classList.remove('hidden');$('progress').value=0;status('正在创建'+(mode==='leisure'?'休闲':'竞技')+'查询…');
   try {
-    const job=await api('/api/batch-rating/'+mode,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({battletags:tags})});
-    localStorage.setItem('ow_batch_rating_task',job.task_id);await poll(job.task_id);
+    const job=await api('/api/batch-rating/'+mode,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({battletags:tags,...(matchTags!==null?{full_match:true}:{})})});
+    localStorage.setItem('ow_batch_rating_task',job.task_id);
+    if(/^[a-f0-9]{32}$/.test(job.task_id))globalThis.history?.replaceState(null,'','/?task='+job.task_id);
+    await poll(job.task_id);
   } catch (error) { status(error.message,true); } finally { busy(false);polling=false; }
 }
 $('leisure').onclick=()=>query('leisure');$('competitive').onclick=()=>query('competitive');
@@ -137,7 +143,10 @@ function matchRow(match,competitive=false) {
   const stamp=Number.isFinite(ts)&&ts>0?new Date(ts).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
   const outcomeClass=match.outcome_label==='胜'?'outcome-win':match.outcome_label==='负'?'outcome-loss':'';
   const reasons=match.adjustments.map(a=>delta(a.points,a.reason)).join('<br>')||'<span class="muted">无额外加减分</span>';
-  return `<tr class="${highlightClass(match)}"><td>${stamp}<span class="cell-note">${number(match.seconds/60)}分钟 · ${match.team_size}人队</span>${matchAwards(match)}${partyBadge(match.party)}</td>
+  const roster=Array.isArray(match.participants)?match.participants:[];
+  const complete=match.roster_complete===true&&[10,12].includes(roster.length);
+  const rosterTitle=complete?'查询当局'+roster.length+'位玩家各自近12场评分':'当局完整战网ID未公开，或旧结果没有名单；请重新查询后查看。';
+  return `<tr class="${highlightClass(match)}"><td class="match-query-column"><button type="button" class="query-match" data-complete="${complete}" data-participants="${escapeHtml(JSON.stringify(roster))}" title="${rosterTitle}" ${complete?'':'disabled'}>查询当局</button><span class="cell-note">${complete?roster.length+'人名单':'名单不完整'}</span></td><td>${stamp}<span class="cell-note">${number(match.seconds/60)}分钟 · ${match.team_size}人队</span>${matchAwards(match)}${partyBadge(match.party)}</td>
     <td>${asset(match.hero_icon,match.hero,'avatar')}<span class="cell-note">${escapeHtml(roleNames[match.role]||match.role_label)}</span></td>
     ${competitive?'<td>'+rankBadge(match.rank)+'</td>':''}
     <td>${asset(match.map_icon,match.map_name,'map-icon')}</td><td class="${outcomeClass}">${outcomeBadge(match)}</td>
@@ -157,8 +166,19 @@ function playerDetails(player,competitive=false) {
   const scoring=player.match_average==null?'':`<p class="note">对局加权均分 ${number(player.match_average,2)}${corrections?' · 综合参考修正：'+corrections:''}</p>`;
   const rows=player.matches.map(match=>matchRow(match,competitive)).join('');
   const errors=player.errors?.length?'<p class="note">未计分：'+player.errors.map(e=>escapeHtml(e.match_id)+' '+escapeHtml(e.error)).join('<br>')+'</p>':'';
-  return `<details><summary>${escapeHtml(player.battletag)} · ${scoreMarkup(player)} · ${player.rated_matches}场</summary><p class="note">${sample}</p>${totals}${scoring}<div class="scroll" tabindex="0" aria-label="玩家逐场详情表"><table class="metrics"><thead><tr><th>时间 / 时长 / 组队</th><th>英雄 / 位置</th>${competitive?'<th>本场记录段位</th>':''}<th>地图</th><th>胜负</th><th>评分</th><th>最后一击占比</th><th>Fleta</th><th>击杀</th><th>助攻</th><th>阵亡</th><th>KD</th><th>伤害/10分</th><th>治疗/10分</th><th>本场权重</th><th>额外加减分</th></tr></thead><tbody>${rows}</tbody></table></div>${errors}</details>`;
+  return `<details><summary>${escapeHtml(player.battletag)} · ${scoreMarkup(player)} · ${player.rated_matches}场</summary><p class="note">${sample}</p>${totals}${scoring}<div class="scroll" tabindex="0" aria-label="玩家逐场详情表"><table class="metrics"><thead><tr><th class="match-query-column">当局名单</th><th>时间 / 时长 / 组队</th><th>英雄 / 位置</th>${competitive?'<th>本场记录段位</th>':''}<th>地图</th><th>胜负</th><th>评分</th><th>最后一击占比</th><th>Fleta</th><th>击杀</th><th>助攻</th><th>阵亡</th><th>KD</th><th>伤害/10分</th><th>治疗/10分</th><th>本场权重</th><th>额外加减分</th></tr></thead><tbody>${rows}</tbody></table></div>${errors}</details>`;
 }
+$('details').onclick=event=>{
+  const button=event.target.closest?.('.query-match');
+  if(!button||button.disabled||querying||!currentReport)return;
+  try{
+    const tags=RatingAccount.parseTags(JSON.parse(button.dataset.participants).join('\n'));
+    if(![10,12].includes(tags.length)||button.dataset.complete!=='true')throw new Error('当局名单不完整，未开始查询。');
+    $('tags').value=tags.join('\n');
+    $('status').scrollIntoView?.({block:'center',behavior:'smooth'});
+    query(currentReport.mode,tags);
+  }catch(error){status(error.message,true);}
+};
 function render(report) {
   currentReport=report;$('horseSummary').value=report.summary_text||'';$('results').classList.remove('hidden');
   const competitive=report.mode==='competitive';$('rankHeader').classList.toggle('hidden',!competitive);
@@ -186,7 +206,10 @@ document.addEventListener('wheel', event => {
 }, {passive:false});
 $('copySummary').onclick=async()=>{try{await navigator.clipboard.writeText($('horseSummary').value);$('copySummary').textContent='已复制';setTimeout(()=>$('copySummary').textContent='复制简短文本',1500);}catch{$('horseSummary').focus();$('horseSummary').select();status('请选择并复制分档文字。');}};
 $('download').onclick=()=>{if(!currentReport)return;const blob=new Blob([JSON.stringify(currentReport,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download='守望队友评分-'+currentReport.mode+'.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
-const previous=localStorage.getItem('ow_batch_rating_task');
-if(previous){busy(true);$('progress').classList.remove('hidden');poll(previous).catch(error=>{localStorage.removeItem('ow_batch_rating_task');status(error.message,true);}).finally(()=>busy(false));}
+const linkedTask=new URLSearchParams(location.search).get('task');
+const validLinkedTask=linkedTask&&/^[a-f0-9]{32}$/.test(linkedTask);
+const previous=linkedTask?(validLinkedTask?linkedTask:null):localStorage.getItem('ow_batch_rating_task');
+if(linkedTask&&!validLinkedTask) status('详情链接无效，请使用机器人本次输出的完整网址。',true);
+if(previous){busy(true);$('progress').classList.remove('hidden');poll(previous,Boolean(validLinkedTask)).catch(error=>{localStorage.removeItem('ow_batch_rating_task');status(error.message,true);}).finally(()=>busy(false));}
 
 fetch('/health').then(response=>response.json()).then(health=>{if(health.api_key_required) document.getElementById('accessSection').classList.remove('hidden');}).catch(()=>{});

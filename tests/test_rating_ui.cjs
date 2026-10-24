@@ -26,6 +26,39 @@ const rank={known:true,label:'黄金3',icon:'https://example.com/gold.png',role_
 const match={begin_ts:1792227400000,seconds:600,hero:'测试',role:'dps',role_label:'输出',map_name:'测试地图',metrics:{},stats:{},adjustments:[],warnings:[],rank,score:65,grade:'B',outcome_label:'胜',sample_weight:1,duration_weight:1};
 const player={battletag:'Example#1234',tier:'中等马',score:65,grade:'B',rated_matches:12,status:'complete',primary_role:'dps',matches:[match,match],errors:[],averages:{},latest_rank:rank};
 
+test('every match has a leftmost query action and incomplete rosters stay disabled',()=>{
+  const {context}=ui();
+  const tags=Array.from({length:10},(_,index)=>'玩家'+index+'#1234');
+  const html=context.matchRow({...match,participants:tags,roster_complete:true});
+  assert.match(html,/<tr[^>]*><td class="match-query-column"><button/);
+  assert.match(html,/查询当局/);
+  assert.doesNotMatch(html,/>查询当局<\/button>.*disabled/);
+  assert.match(context.matchRow(match),/class="query-match"[^>]*disabled/);
+});
+
+test('match queries replace the roster, preserve mode, and exclude an unrelated bound account',async()=>{
+  const cookie='ow_rating_self='+encodeURIComponent(JSON.stringify({tag:'局外本人#5555',autoJoin:true}));
+  const {context,element,requests,document}=ui(cookie);
+  const originalCookie=document.cookie;
+  const tags=Array.from({length:12},(_,index)=>'玩家'+index+'#1234');
+  context.render({mode:'leisure',mode_label:'休闲',summary:{requested_players:1,complete_players:1,rated_matches:12},players:[player]});
+  element('details').onclick({target:{closest:()=>({disabled:false,dataset:{complete:'true',participants:JSON.stringify(tags)}})}});
+  await new Promise(resolve=>setImmediate(resolve));
+  const submitted=requests.find(request=>request.options?.method==='POST');
+  assert.equal(submitted.url,'/api/batch-rating/leisure');
+  assert.deepEqual(JSON.parse(submitted.options.body),{battletags:tags,full_match:true});
+  assert.equal(element('tags').value,tags.join('\n'));
+  assert.equal(document.cookie,originalCookie);
+});
+
+test('an incomplete match action cannot start a partial roster query',async()=>{
+  const {context,element,requests}=ui();
+  context.render({mode:'competitive',mode_label:'竞技',summary:{requested_players:1,complete_players:1,rated_matches:12},players:[player]});
+  element('details').onclick({target:{closest:()=>({disabled:true,dataset:{complete:'false',participants:'[]'}})}});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(requests.filter(request=>request.options?.method==='POST').length,0);
+});
+
 test('wins and losses use accessible green-up and red-down arrows',()=>{
   const {context}=ui();
   assert.match(context.outcomeBadge({outcome_label:'胜'}),/win.*本场胜利.*↑/);
@@ -109,10 +142,10 @@ test('hot streak appears alongside the win rate in overview and detail header',(
 test('classic match table restores independent columns without losing current form indicators',()=>{
   const {context}=ui();
   const html=context.matchRow({...match,stats:{kill:20,assist:8,death:3,heroDamage:6000,cure:2000,finalHit:10},kd:20/3,team_final_blows:30,opponent_final_blows:31,balanced_final_blows:true,long_match:true},true);
-  assert.equal((html.match(/<td(?:\s[^>]*)?>/g)||[]).length,16);
+  assert.equal((html.match(/<td(?:\s[^>]*)?>/g)||[]).length,17);
   for(const text of ['长局增权','势均力敌']) assert.ok(html.includes(text),text);
   const detailed=context.playerDetails(player,true);
-  assert.equal((detailed.match(/<th>/g)||[]).length,16);
+  assert.equal((detailed.match(/<th\b/g)||[]).length,17);
   for(const text of ['本场记录段位','最后一击占比','Fleta','击杀','助攻','阵亡','KD','伤害/10分','治疗/10分']) assert.ok(detailed.includes(text),text);
   assert.doesNotMatch(detailed,/colgroup/);
 });

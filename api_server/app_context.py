@@ -31,6 +31,7 @@ class AppState:
     llm_client: Any = None
     bindings_manager: Any = None
     batch_rating: Any = None
+    hero_rates: Any = None
     initialized: bool = False
 
 
@@ -216,12 +217,18 @@ async def initialize_modules(cfg: Dict[str, Any]) -> AppState:
     from .batch_rating.service import BatchRatingService
     state.batch_rating = BatchRatingService(state)
 
+    from .hero_rates import HeroRatesCache
+    state.hero_rates = HeroRatesCache()
+    await state.hero_rates.start()
+
     state.initialized = True
     logger.info("应用模块初始化完成")
     return state
 
 
 async def shutdown_modules(state: AppState) -> None:
+    if state.hero_rates is not None:
+        await state.hero_rates.close()
     if state.batch_rating is not None:
         await state.batch_rating.close()
     if state.hero_leaderboard_sync is not None:

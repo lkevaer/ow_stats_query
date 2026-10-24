@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>韩服英雄胜率数据 · 守望先锋</title>
+<link rel="stylesheet" href="/static/hero_rates.css">
+<script defer src="/static/hero_rates.js"></script>
+</head>
+<body><main>
+<nav class="hero-nav"><a href="/">← 队友评分查询</a><span>OVERWATCH · HERO STATISTICS</span></nav>
+<header class="stats-banner"><div><p class="stats-eyebrow">OVERWATCH / 英雄统计</p><div class="stats-wordmark">STATISTICS</div><h1 id="heroRateTitle">韩服英雄胜率数据</h1><p>查看各英雄的选取率、胜率与禁用率，了解当前环境。</p></div></header>
+<section class="hero-board" aria-label="英雄统计">
+<p id="filterSummary" class="filter-summary">大师 · 所有地图 · PC · 韩服 · 竞技比赛 · 全部位置</p>
+<div class="hero-filters" id="heroFilters">
+<label>角色<select id="role" aria-label="角色"></select></label>
+<label>游戏模式<select id="rq" aria-label="游戏模式"></select></label>
+<label id="rankFilter">段位<select id="rank" aria-label="段位"></select></label>
+<label>地图<select id="map" aria-label="地图"></select></label>
+<label>平台<select id="input" aria-label="平台"></select></label>
+<label>地区<select id="region" aria-label="地区"></select></label>
+</div>
+<div class="cache-line"><span id="cacheUpdated">正在读取统计缓存…</span><span id="sortHint">胜率从高到低</span></div>
+<div id="heroAccess" class="hero-access" hidden><label for="heroAccessKey">此服务需要访问码</label><input id="heroAccessKey" type="password" autocomplete="off"><button id="heroAccessSubmit" type="button">加载数据</button></div>
+<p id="heroRateStatus" class="hero-status" role="status"></p>
+<div class="hero-table-scroll"><table id="heroRateTable" class="hero-rate-table">
+<thead><tr><th scope="col" data-sort="name"><button type="button" data-key="name">英雄 <span>↕</span></button></th><th scope="col" data-sort="pickRate"><button type="button" data-key="pickRate">选取率 <span>↕</span></button></th><th scope="col" data-sort="winRate" aria-sort="descending"><button type="button" data-key="winRate">胜率 <span>↓</span></button></th><th scope="col" data-sort="banRate" class="ban-column"><button type="button" data-key="banRate">禁用率 <span>↕</span></button></th></tr></thead>
+<tbody id="heroRateRows"></tbody>
+</table></div>
+<footer class="hero-source"><p>数据来源：<a id="heroRateSource" href="https://overwatch.nexon.com/hero/rate" target="_blank" rel="noopener noreferrer">Nexon《守望先锋》英雄统计</a> · 英雄名称采用国服名称。</p><p>每种筛选组合缓存24小时；已缓存的条件直接读取本地数据。首次使用新条件时建立缓存，之后自动定时更新。</p><p>访问 <a href="https://lkevaer.xyz">lkevaer.xyz</a> · 查询当局所有人的评分评级</p></footer>
+</section>
+</main></body></html>

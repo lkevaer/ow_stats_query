@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime
 import json
 import os
+import re
 from pathlib import Path
 import time
 from typing import Any
@@ -29,6 +30,8 @@ class BatchRatingService:
         self.running: dict[str, asyncio.Task] = {}
         self.network = asyncio.Semaphore(2)
         self.batch_slots = asyncio.Semaphore(1)
+        self.report_dir = Path(os.getenv("OW_RATING_REPORT_DIR") or Path(__file__).resolve().parents[2] / "data" / "batch_rating_reports")
+        self._last_report_cleanup = 0.0
         self.current_season = int(os.getenv("OW_RATING_CURRENT_SEASON", "25"))
 
     async def close(self):
@@ -40,14 +43,20 @@ class BatchRatingService:
 
     def _cleanup(self):
         now = time.time()
+        if now - self._last_report_cleanup > 300:
+            self._last_report_cleanup = now
+            if self.report_dir.exists():
+                for path in self.report_dir.glob("*.json"):
+                    if re.fullmatch(r"[0-9a-f]{32}\.json", path.name) and now - path.stat().st_mtime > 86400:
+                        path.unlink(missing_ok=True)
         for key in list(self.jobs):
             job = self.jobs[key]
             if job["status"] in {"done", "error"} and now - job["updated_at"] > 3600:
                 del self.jobs[key]
 
-    async def prepare(self, battletags: list[str], image_base64: str | None) -> dict:
+    async def prepare(self, battletags: list[str], image_base64: str | None, *, full_match: bool = False) -> dict:
         if battletags:
-            return {"battletags": normalize_tags(battletags), "source": "battletags"}
+            return {"battletags": normalize_tags(battletags, max_players=12 if full_match else 10), "source": "battletags"}
         if not image_base64:
             raise ValueError("请上传截图，或提供 battletags 数组")
         extracted = await recognize_image(image_base64)
@@ -75,7 +84,26 @@ class BatchRatingService:
     def get_job(self, key: str) -> dict | None:
         self._cleanup()
         job = self.jobs.get(key)
+        if job is None and re.fullmatch(r"[0-9a-f]{32}", key):
+            path = self.report_dir / (key + ".json")
+            try:
+                saved = json.loads(path.read_text(encoding="utf-8"))
+                if saved.get("task_id") == key and saved.get("status") == "done" and time.time() - float(saved["updated_at"]) <= 86400:
+                    job = saved
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
         return self.public_job(job) if job else None
+
+    def _save_report(self, job):
+        snapshot = self.public_job(job)
+        snapshot["result"] = dict(snapshot["result"])
+        recognized = snapshot["result"].get("recognized") or {}
+        snapshot["result"]["recognized"] = {k: recognized[k] for k in ("source", "battletags") if k in recognized}
+        self.report_dir.mkdir(parents=True, exist_ok=True)
+        destination = self.report_dir / (job["task_id"] + ".json")
+        temporary = destination.with_suffix(".tmp")
+        temporary.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(destination)
 
     async def _run_job(self, job, prepared):
         try:
@@ -84,6 +112,7 @@ class BatchRatingService:
                 result = await self.query(job["mode"], prepared, progress=lambda stage, pct, completed: job.update(
                     stage=stage, progress=round(pct, 1), completed_players=completed, updated_at=time.time()))
                 job.update(status="done", stage="查询完成", progress=100, result=result, updated_at=time.time())
+                await asyncio.to_thread(self._save_report, job)
         except asyncio.CancelledError:
             job.update(status="error", error="服务停止，查询已取消", updated_at=time.time())
             raise
