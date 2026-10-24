@@ -26,6 +26,38 @@ const rank={known:true,label:'黄金3',icon:'https://example.com/gold.png',role_
 const match={begin_ts:1792227400000,seconds:600,hero:'测试',role:'dps',role_label:'输出',map_name:'测试地图',metrics:{},stats:{},adjustments:[],warnings:[],rank,score:65,grade:'B',outcome_label:'胜',sample_weight:1,duration_weight:1};
 const player={battletag:'Example#1234',tier:'中等马',score:65,grade:'B',rated_matches:12,status:'complete',primary_role:'dps',matches:[match,match],errors:[],averages:{},latest_rank:rank};
 
+test('child details are lazy, have nine participants, and escape public names',()=>{
+  const {context}=ui();
+  const others=Array.from({length:9},(_,i)=>({...match,battletag:i===0?'<script>attack</script>':'其他玩家'+i+'#1234',team:i<4?'ally':'opponent'}));
+  const complete={...match,match_details:{other_players:others,total_players:10,rated_players:10}};
+  const parent=context.matchRow(complete,true,2,3);
+  assert.match(parent,/展开对局详情/);
+  assert.match(parent,/aria-controls="match-details-2-3"/);
+  assert.doesNotMatch(parent,/其他玩家|match-player-table/);
+  assert.match(context.matchRow(match),/toggle-match-details[^>]*disabled/);
+  const html=context.matchDetailsMarkup(complete);
+  assert.equal((html.match(/match-player-tag/g)||[]).length,9);
+  assert.match(html,/当局其余 9 人/);
+  assert.match(html,/&lt;script&gt;attack/);
+  assert.doesNotMatch(html,/<script>/);
+});
+
+test('metric buttons show real contributions and exact threshold explanations without a dialog',()=>{
+  const {context}=ui();
+  const row={...match,fleta:.8,metrics:{survival:{reference_per10:4,weight:.4,contribution:-3.25,comparison:'全队参考'}},adjustments:[{reason:'阵亡参考扣分',points:-2.5}]};
+  const hint=context.metricHint(row,'survival');
+  assert.match(hint,/全队参考：4.00 \/10分钟/);
+  assert.match(hint,/-3.3 分/);
+  assert.match(hint,/阵亡参考扣分 -2.5分/);
+  assert.match(context.metricHint(row,'fleta'),/败方严格超过80%/);
+  assert.match(context.metricHint(row,'healing'),/不按0分处理/);
+  const html=context.matchRow({...row,stats:{kill:10,assist:2,death:9}});
+  for(const value of ['10','2','9','80.0%'])assert.ok(html.includes('>'+value+'</button>'),value);
+  assert.match(html,/data-explanation=/);
+  assert.doesNotMatch(html,/dialog|onclick=/);
+  assert.doesNotMatch(context.metricButton('1','<img onerror="alert(1)">'),/data-explanation="<img/);
+});
+
 test('every match has a leftmost query action and incomplete rosters stay disabled',()=>{
   const {context}=ui();
   const tags=Array.from({length:10},(_,index)=>'玩家'+index+'#1234');

@@ -15,7 +15,7 @@ import time
 import httpx
 
 SOURCE_URL = "https://overwatch.nexon.com/hero/rate"
-REFRESH_SECONDS = 86400
+REFRESH_SECONDS = 21600
 DEFAULT_FILTERS = {
     "role": "all",
     "rq": "2",
@@ -89,7 +89,7 @@ def parse_public_statistics(html: str) -> dict:
 
 
 class HeroRatesCache:
-    """Refresh each filter combination at most once per day after a successful fetch."""
+    """Refresh successful snapshots every six hours without fetching on each view."""
 
     def __init__(
         self, directory: Path | None = None, *, transport=None, clock=time.time

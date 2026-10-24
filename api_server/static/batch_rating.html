@@ -26,7 +26,7 @@
 <script defer src="/static/batch_rating_ocr.js"></script>
 </head>
 <body><main>
-<nav class="site-nav" aria-label="数据工具"><a class="hero-rates-entry" href="/hero-rates">韩服英雄胜率数据 <span aria-hidden="true">↗</span></a></nav>
+<nav class="site-nav" aria-label="数据工具"><a class="hero-rates-entry" href="/hero-rates"><span class="hero-entry-copy"><strong>韩服英雄胜率数据</strong><small>大师段位 · 全部位置 · 每6小时更新</small></span><span class="hero-entry-arrow" aria-hidden="true">↗</span></a></nav>
 <header class="page-top">
 <div class="page-intro">
 <div class="eyebrow">TEAMMATE RATING · RECENT 12</div>
@@ -61,7 +61,7 @@
 <div class="scroll" tabindex="0" aria-label="队友评分汇总表"><table><thead><tr><th id="comparisonRankHeader">排名</th><th>玩家</th><th id="tierHeader">相对分档</th><th>综合分 / 等级</th><th>样本 / 完整度</th><th>主要位置</th><th id="rankHeader" class="hidden">最近记录段位</th><th>胜率 / 状态</th><th>KD / 高KD场次</th><th>最后一击占比</th><th>综合 Fleta</th><th>伤害/10分</th><th>阵亡/10分</th><th>碾压降权</th></tr></thead><tbody id="rankings"></tbody></table></div>
 <p id="comparisonPrompt" class="notice hidden">请输入更多ID以比较（至少两位有有效评分的玩家）。</p>
 <div id="horseSummaryBox" class="summary-box"><div class="section-title"><h2>我方上下等马</h2><button id="copySummary">复制简短文本</button></div><p class="notice summary-notice">仅在本次名单内相对比较；名单段位差距过大时，上下等马评级没有比较意义。</p><label for="horseSummary" class="note">括号内：近12场评分 / Fleta；样本不足时标注实际场数。</label><textarea id="horseSummary" readonly rows="3"></textarea></div>
-<div class="key note"><span>展开玩家查看逐场详情</span><span class="delta neg1">轻扣</span><span class="delta neg2">较重扣分</span><span class="delta neg3">严重扣分</span><span class="delta pos1">小幅加分</span><span class="delta pos2">明显加分</span><span class="delta pos3">高权重加分</span><span>数据下方±数字为该项相对基准的分数贡献，悬停查看队友参考值。</span></div>
+<div class="key note"><span>展开玩家查看逐场详情</span><span class="delta neg1">轻扣</span><span class="delta neg2">较重扣分</span><span class="delta neg3">严重扣分</span><span class="delta pos1">小幅加分</span><span class="delta pos2">明显加分</span><span class="delta pos3">高权重加分</span><span>数据下方±数字为该项相对基准的分数贡献，点击数值查看参考标准与实际加减分。</span></div>
 <div class="key note"><span class="award mvp">MVP</span><span>当局十人评分最高 · 金边</span><span class="award carry">CARRY</span><span>Fleta≥80% · 浅金边</span><span class="award svp">SVP</span><span>败方Fleta&gt;80% · 淡紫边</span><span>MVP优先金色，可同时保留多个标志；并列最高均标记MVP，十人数据不全时不判定。组队人数只按对局记录显示。</span></div>
 <div class="key note grade-key"><span class="rating-score grade-sss">SSS · 100</span><span class="rating-score grade-s">S · 90+</span><span class="rating-score grade-a">A · 80+</span><span class="rating-score grade-b">B · 70+</span><span class="rating-score grade-c">C · 60+</span><span class="rating-score grade-d">D · 60以下</span><span>SMURF为额外表现等级。</span></div>
 <div id="details"></div>
@@ -88,5 +88,5 @@
 <li>上下等马只在本次名单内相对排序，同分同档。只有一位有效评分玩家时不分上下等马，请输入更多ID以比较；无数据不评级。评分不按段位修正对局含金量，名单段位差距过大时没有比较意义。</li>
 </ul></details>
 </section>
-<footer class="web-callout"><a href="https://lkevaer.xyz">访问 lkevaer.xyz</a><div><strong>进入网页版查询当局所有人评分评级</strong><span>展开每场详情，点击最左侧“查询当局”，自动填入完整名单并开始新一轮查询。完整评分规则见上方。</span></div></footer>
+<footer class="web-callout"><a href="https://lkevaer.xyz">https://lkevaer.xyz</a><div><strong>进入网页版查询当局所有人评分评级</strong><span>展开每场详情，查看其余玩家的当局评分，或点击“查询当局”开始全员新一轮查询。完整评分规则见上方。</span></div></footer>
 </main></body></html>

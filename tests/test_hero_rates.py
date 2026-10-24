@@ -122,7 +122,7 @@ class HeroRatesTests(unittest.IsolatedAsyncioTestCase):
         self,
     ):
         before = await self.cache.get()
-        self.now += 86401
+        self.now += 21601
         self.fail = True
         stale = await self.cache.get()
         await asyncio.gather(*self.cache.refreshing.values())
@@ -146,6 +146,19 @@ class HeroRatesTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([row["heroId"] for row in report["heroes"]], ["winston"])
         await self.cache.get({"rank": "diamond", "role": "support"})
         self.assertEqual(len(self.requests), 2)
+
+    async def test_refresh_boundary_is_six_hours_and_roles_share_the_refresh(self):
+        before = await self.cache.get()
+        self.assertEqual(before["refresh_after"] - before["fetched_at"], 21600)
+        self.now += 21599
+        self.assertFalse((await self.cache.get({"role": "tank"}))["stale"])
+        self.assertEqual(len(self.requests), 1)
+        self.now += 1
+        reports = await asyncio.gather(*(self.cache.get({"role": role}) for role in ["tank", "damage", "support"]))
+        await asyncio.gather(*self.cache.refreshing.values())
+        self.assertTrue(any(report["stale"] for report in reports))
+        self.assertEqual(len(self.requests), 2)
+        self.assertFalse((await self.cache.get())["stale"])
 
     async def test_invalid_filters_never_fetch_and_quick_mode_has_no_rank(self):
         for selected in [{"rank": "invented"}, {"input": "console"}, {"map": "escort"}]:

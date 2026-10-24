@@ -232,6 +232,22 @@ def _score_player(data: dict, source: dict, *, own: dict, team: list[dict], oppo
     }
 
 
+def public_battletag(player: dict, name_map: dict) -> str:
+    """Return a validated public tag without exposing internal identifiers."""
+    candidates = [player.get(key) for key in ("battletag", "battleTag", "name", "bnetId")]
+    mapped = name_map.get(str(player.get("bnetId") or "")) if isinstance(name_map, dict) else None
+    if isinstance(mapped, str):
+        candidates.append(mapped)
+    for candidate in candidates:
+        if not isinstance(candidate, str):
+            continue
+        try:
+            return normalize_tags([candidate])[0]
+        except ValueError:
+            continue
+    return ""
+
+
 def match_roster(data: dict) -> dict:
     """Expose only complete public BattleTags; never substitute internal tokens."""
     teams = [data.get("teammateList") or [], data.get("enemyList") or []]
@@ -241,18 +257,9 @@ def match_roster(data: dict) -> dict:
         for player in team:
             if not isinstance(player, dict):
                 continue
-            mapped = name_map.get(str(player.get("bnetId") or "")) if isinstance(name_map, dict) else None
-            candidates = [player.get(key) for key in ("battletag", "battleTag", "name", "bnetId")]
-            if isinstance(mapped, str):
-                candidates.append(mapped)
-            for candidate in candidates:
-                if not isinstance(candidate, str):
-                    continue
-                try:
-                    tags.append(normalize_tags([candidate])[0])
-                    break
-                except ValueError:
-                    continue
+            tag = public_battletag(player, name_map)
+            if tag:
+                tags.append(tag)
     try:
         tags = normalize_tags(tags, max_players=12)
     except ValueError:
@@ -282,28 +289,39 @@ def score_match(data: dict, source: dict, *, customer_token: str, bnet_id: str, 
                              heroes=heroes, maps=maps or {}, ranks=ranks or [], stomp=stomp, stomp_reason=reason)
 
     result = calculate(own, side)
-    scores = [result["score"]]
+    other_players = []
+    name_map = data.get("nameMap") or {}
+    for index, team in enumerate(teams):
+        for player in team:
+            if player is own:
+                continue
+            tag = public_battletag(player, name_map)
+            display_name = tag or str(player.get("name") or "未公开ID").split("#", 1)[0][:64]
+            try:
+                candidate = calculate(player, index)
+            except ValueError as error:
+                hero = heroes.get(str(player.get("heroGuid") or player.get("heroId") or ""), {})
+                candidate = {"score": None, "grade": None, "hero": hero.get("name") or "未知英雄",
+                             "role": role_of(player, heroes), "hero_icon": _asset_url(hero.get("icon")),
+                             "stats": {key: numeric(player, key) for key in FIELDS.values()},
+                             "metrics": {}, "adjustments": [], "warnings": [str(error)],
+                             "seconds": result["seconds"], "data_coverage": 0}
+            candidate.update(battletag=display_name, team="ally" if index == side else "opponent")
+            other_players.append(candidate)
+    rated = [result] + [player for player in other_players if player["score"] is not None]
+    scores = [player["score"] for player in rated]
     complete = all(len(team) == 5 for team in teams)
     identities = [str(p.get("bnetId") or p.get("customerToken") or p.get("name") or p.get("battletag") or "") for team in teams for p in team]
-    complete = complete and all(identities) and len(set(identities)) == 10 and result["data_coverage"] >= .999
-    if complete:
-        for index, team in enumerate(teams):
-            for player in team:
-                if player is own:
-                    continue
-                try:
-                    candidate = calculate(player, index)
-                    scores.append(candidate["score"])
-                    if candidate["data_coverage"] < .999:
-                        complete = False
-                except ValueError:
-                    complete = False
+    complete = complete and all(identities) and len(set(identities)) == 10 and len(rated) == 10 and all(player["data_coverage"] >= .999 for player in rated)
     highest = max(scores)
-    result.update(is_mvp=complete and result["score"] == highest,
-                  mvp_tied=complete and result["score"] == highest and scores.count(highest) > 1,
-                  mvp_compared_players=len(scores) if all(len(t) == 5 for t in teams) else 0,
-                  mvp_comparison_complete=complete,
-                  mvp_note="按当局完整十人自定义评分比较，同分可并列" if complete else "十人可评分数据不完整，未判定MVP")
+    for player in [result, *other_players]:
+        player.update(is_mvp=complete and player["score"] == highest,
+                      mvp_tied=complete and player["score"] == highest and scores.count(highest) > 1,
+                      mvp_compared_players=len(scores) if all(len(t) == 5 for t in teams) else 0,
+                      mvp_comparison_complete=complete,
+                      mvp_note="按当局完整十人自定义评分比较，同分可并列" if complete else "十人可评分数据不完整，未判定MVP")
+    result["match_details"] = {"other_players": other_players, "total_players": sum(map(len, teams)),
+                               "rated_players": len(rated), "version": 1}
     result.update(match_roster(data))
     return result
 
