@@ -174,7 +174,7 @@ function rankBadge(rank) {
 function outcomeBadge(match) {
   const win=match.outcome_label==='胜', loss=match.outcome_label==='负';
   const title=win?'本场胜利':loss?'本场战败':match.outcome_label==='平'?'本场平局':'胜负未知';
-  return '<span class="outcome-arrow '+(win?'win':loss?'loss':'draw')+'" title="'+title+'" aria-label="'+title+'">'+(win?'↑':loss?'↓':'↔')+'</span> '+escapeHtml(match.outcome_label);
+  return '<span class="outcome-badge '+(win?'win':loss?'loss':'draw')+'" title="'+title+'" aria-label="'+title+'"><span class="outcome-arrow" aria-hidden="true">'+(win?'↑':loss?'↓':'↔')+'</span>'+escapeHtml(match.outcome_label||'未知')+'</span>';
 }
 function kdLabel(row) { return row.kd_perfect?'∞':number(row.kd,2); }
 function matchAwards(match) {
@@ -200,48 +200,129 @@ function weightNotes(match) {
     (match.balanced_final_blows?weightBadge('balanced','势均力敌','双方最后一击总数接近且数量充足，提高本场评分权重'):'')+
     (match.is_stomp?weightBadge('stomp','碾压降权',match.stomp_reason||'明显碾压局，降低本场评分权重'):'')+'</span>';
 }
-function statCell(match,key,field,per10=false) {
-  const component=match.metrics?.[key], raw=match.stats?.[field]??component?.value;
-  const value=per10&&raw!=null?raw*600/match.seconds:raw;
-  const reference=component?component[per10?'reference_per10':'reference']:null;
-  const title=component?component.comparison+'：'+number(reference)+(per10?'/10分':''):'';
-  return '<td title="'+escapeHtml(title)+'">'+metricValue(match,key,number(value,0))+(component?'<br>'+delta(component.contribution,'',metricHint(match,key)):'')+'</td>';
+const matchSorts=new Map(),childSorts=new Map(),expandedMatches=new Set();
+const sortLabels={begin_ts:'时间',score:'本场评分',final_blow_share:'最后一击占比',fleta:'FLETA指数',kill:'击杀',assist:'助攻',death:'阵亡',kd:'KD',damage:'伤害/10分',healing:'治疗/10分',sample_weight:'本场权重'};
+const matchKey=(playerIndex,matchIndex)=>playerIndex+':'+matchIndex;
+function tableValue(row,key){
+  if(key==='kd'&&row.kd_perfect)return Infinity;
+  let value;
+  if(['kill','assist','death'].includes(key))value=row.stats?.[key];
+  else if(key==='damage'||key==='healing'){
+    const raw=row.stats?.[key==='damage'?'heroDamage':'cure'];
+    value=raw!=null&&row.seconds>0?raw*600/row.seconds:row.metrics?.[key]?.per10;
+  }else value=row[key];
+  if(value==null||!Number.isFinite(Number(value)))return null;
+  value=Number(value);
+  return key==='begin_ts'&&value<1e12?value*1000:value;
 }
-function matchRow(match,competitive=false,playerIndex=0,matchIndex=0) {
+function sortedRows(rows,state,project=row=>row){
+  if(!state||!Object.hasOwn(sortLabels,state.key))return [...rows];
+  return rows.map((row,index)=>({row,index,value:tableValue(project(row),state.key)})).sort((a,b)=>{
+    if(a.value==null)return b.value==null?a.index-b.index:1;
+    if(b.value==null)return -1;
+    return (a.value===b.value?0:a.value<b.value?-1:1)*(state.descending?-1:1)||a.index-b.index;
+  }).map(item=>item.row);
+}
+function nextTableSort(state,key){
+  return Object.hasOwn(sortLabels,key)?{key,descending:state?.key===key?!state.descending:true}:state;
+}
+function sortHeader(key,state,label=sortLabels[key]){
+  const active=state?.key===key,direction=active?(state.descending?'descending':'ascending'):'none';
+  const next=active&&state.descending?'从低到高':'从高到低';
+  return '<th class="sortable-heading" data-sort-key="'+key+'" aria-sort="'+direction+'"><button type="button" class="sort-metric" data-sort-key="'+key+'" title="按'+label+next+'排序"><span class="sort-label">'+label+'</span><span class="sort-indicator" aria-hidden="true">'+(active?(state.descending?'↓':'↑'):'↕')+'</span></button></th>';
+}
+function metricHeaders(state){
+  return ['score','final_blow_share','fleta','kill','assist','death','kd','damage','healing','sample_weight'].map(key=>sortHeader(key,state)).join('');
+}
+function metricCell(value,detail='',className=''){
+  return '<td class="metric-cell '+className+'"><div class="metric-stack"><div class="metric-main">'+value+'</div><div class="metric-sub">'+detail+'</div></div></td>';
+}
+function statCell(match,key,field,per10=false){
+  const component=match.metrics?.[key],raw=match.stats?.[field]??component?.value;
+  const value=per10&&raw!=null&&match.seconds>0?raw*600/match.seconds:per10?component?.per10:raw;
+  return metricCell(metricValue(match,key,number(value,0)),component?delta(component.contribution,'',metricHint(match,key)):'','stat-column');
+}
+function performanceCells(match){
+  const count=metricValue(match,'final_blows',number(match.stats?.finalHit??match.metrics?.final_blows?.value,0),'最后一击')+'<span class="fraction-separator">/</span>'+metricValue(match,'final_blow_share',number(match.team_final_blows,0),'全队最后一击');
+  return metricCell(scoreMarkup(match),matchAwards(match)+(match.score==null?'<span class="muted">未计分</span>':''),'score-column')+
+    metricCell(metricValue(match,'final_blow_share',pct(match.final_blow_share),'最后一击占比'),count,'share-column')+
+    metricCell(metricValue(match,'fleta',pct(match.fleta),'FLETA指数'),'','fleta-column')+
+    statCell(match,'eliminations','kill')+statCell(match,'assists','assist')+statCell(match,'survival','death')+
+    metricCell(metricValue(match,'kd',kdLabel(match),'KD'),'','kd-column')+
+    statCell(match,'damage','heroDamage',true)+statCell(match,'healing','cure',true)+
+    metricCell(metricValue(match,'weight',pct(match.sample_weight),'本场权重'),weightNotes(match),'weight-column');
+}
+function heroCell(match,competitive){
+  return '<td class="hero-cell">'+asset(match.hero_icon,match.hero,'avatar')+'<div class="role-context"><span>'+escapeHtml(roleNames[match.role]||match.role_label||'未知位置')+'</span>'+(!competitive?outcomeBadge(match):'')+'</div></td>';
+}
+function recordCell(match){
+  return '<td class="record-cell"><div class="record-context">'+rankBadge(match.rank)+outcomeBadge(match)+'</div></td>';
+}
+function reasonsCell(match){
+  const reasons=(match.adjustments||[]).map(item=>delta(item.points,item.reason)).join('')||'<span class="muted">无额外加减分</span>';
+  return '<td class="reasons">'+reasons+(match.warnings?.length?'<span class="cell-note">'+match.warnings.map(escapeHtml).join('；')+'</span>':'')+'</td>';
+}
+function matchRow(match,competitive=false,playerIndex=0,matchIndex=0){
   let ts=Number(match.begin_ts);if(ts<1e12)ts*=1000;
   const stamp=Number.isFinite(ts)&&ts>0?new Date(ts).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
-  const outcomeClass=match.outcome_label==='胜'?'outcome-win':match.outcome_label==='负'?'outcome-loss':'';
-  const reasons=match.adjustments.map(a=>delta(a.points,a.reason)).join('<br>')||'<span class="muted">无额外加减分</span>';
   const roster=Array.isArray(match.participants)?match.participants:[];
   const complete=match.roster_complete===true&&[10,12].includes(roster.length);
+  const details=Boolean(match.match_details?.other_players?.length),open=expandedMatches.has(matchKey(playerIndex,matchIndex));
   const rosterTitle=complete?'查询当局'+roster.length+'位玩家各自近12场评分':'当局完整战网ID未公开，或旧结果没有名单；请重新查询后查看。';
-  const details=Array.isArray(match.match_details?.other_players)&&match.match_details.other_players.length>0;
-  return `<tr class="${highlightClass(match)}"><td class="match-query-column"><button type="button" class="toggle-match-details" data-player-index="${playerIndex}" data-match-index="${matchIndex}" aria-expanded="false" aria-controls="match-details-${playerIndex}-${matchIndex}" title="${details?'查看其余玩家本场数据与评分':'旧结果没有当局详情，请重新查询'}" ${details?'':'disabled'}>展开对局详情</button><button type="button" class="query-match" data-complete="${complete}" data-participants="${escapeHtml(JSON.stringify(roster))}" title="${rosterTitle}" ${complete?'':'disabled'}>查询当局</button><span class="cell-note">${complete?roster.length+'人名单':'名单不完整'}</span></td><td>${stamp}<span class="cell-note">${number(match.seconds/60)}分钟 · ${match.team_size}人队</span>${matchAwards(match)}${partyBadge(match.party)}</td>
-    <td>${asset(match.hero_icon,match.hero,'avatar')}<span class="cell-note">${escapeHtml(roleNames[match.role]||match.role_label)}</span></td>
-    ${competitive?'<td>'+rankBadge(match.rank)+'</td>':''}
-    <td>${asset(match.map_icon,match.map_name,'map-icon')}</td><td class="${outcomeClass}">${outcomeBadge(match)}</td>
-    <td>${scoreMarkup(match)}</td>
-    <td>${metricValue(match,'final_blow_share',pct(match.final_blow_share),'最后一击占比')}<span class="cell-note">${metricValue(match,'final_blows',number(match.stats?.finalHit??match.metrics?.final_blows?.value,0),'最后一击')}/${metricValue(match,'final_blow_share',number(match.team_final_blows,0),'全队最后一击')}</span></td>
-    <td>${metricValue(match,'fleta',pct(match.fleta),'Fleta')}</td>
-    ${statCell(match,'eliminations','kill')}${statCell(match,'assists','assist')}${statCell(match,'survival','death')}
-    <td>${metricValue(match,'kd',kdLabel(match),'KD')}</td>
-    ${statCell(match,'damage','heroDamage',true)}${statCell(match,'healing','cure',true)}
-    <td>${metricValue(match,'weight',pct(match.sample_weight),'本场权重')}${weightNotes(match)}</td>
-    <td class="reasons">${reasons}${match.warnings?.length?'<br><span class="muted">'+match.warnings.map(escapeHtml).join('<br>')+'</span>':''}</td></tr>`;
+  return `<tr class="${highlightClass(match)}${open?' match-expanded':''}" data-match-index="${matchIndex}"><td class="match-query-column"><button type="button" class="toggle-match-details" data-player-index="${playerIndex}" data-match-index="${matchIndex}" aria-expanded="${open}" aria-controls="match-details-${playerIndex}-${matchIndex}" title="${details?'查看当局全员本场数据与评分':'旧结果没有当局详情，请重新查询'}" ${details?'':'disabled'}>${open?'收起对局详情':'展开对局详情'}</button><button type="button" class="query-match" data-complete="${complete}" data-participants="${escapeHtml(JSON.stringify(roster))}" title="${rosterTitle}" ${complete?'':'disabled'}>查询当局</button><span class="cell-note">${complete?roster.length+'人名单':'名单不完整'}</span></td><td class="match-time">${stamp}<span class="cell-note">${number(match.seconds/60)}分钟 · ${match.team_size??'—'}人队</span>${partyBadge(match.party)}</td>`+
+    heroCell(match,competitive)+(competitive?recordCell(match):'')+
+    '<td class="map-cell">'+asset(match.map_icon,match.map_name,'map-icon')+'</td>'+performanceCells(match)+reasonsCell(match)+'</tr>';
 }
-function matchDetailsMarkup(match) {
-  const detail=match.match_details,players=detail?.other_players||[];
-  return '<div class="match-detail-panel"><div class="match-detail-title"><strong>当局其余 '+players.length+' 人</strong><span>仅展示这一场 · '+detail.rated_players+'/'+detail.total_players+'人可评分 · 点击数值查看评分依据</span></div><div class="scroll" tabindex="0" aria-label="当局其他玩家数据表"><table class="match-player-table"><thead><tr><th>队伍 / 玩家</th><th>英雄 / 位置</th><th>胜负</th><th>本场评分</th><th>最后一击占比</th><th>Fleta</th><th>击杀</th><th>助攻</th><th>阵亡</th><th>KD</th><th>伤害/10分</th><th>治疗/10分</th><th>本场权重</th><th>额外加减分</th></tr></thead><tbody>'+players.map(row=>'<tr class="'+highlightClass(row)+'"><td><span class="team-label '+row.team+'">'+(row.team==='ally'?'我方':'对方')+'</span><strong class="match-player-tag">'+escapeHtml(row.battletag)+'</strong></td><td>'+asset(row.hero_icon,row.hero,'avatar')+'<span class="cell-note">'+escapeHtml(roleNames[row.role]||row.role_label||'未知位置')+'</span></td><td>'+outcomeBadge(row)+'</td><td>'+scoreMarkup(row)+matchAwards(row)+(row.score==null?'<span class="cell-note">数据不足，未计分</span>':'')+'</td><td>'+metricValue(row,'final_blow_share',pct(row.final_blow_share),'最后一击占比')+'</td><td>'+metricValue(row,'fleta',pct(row.fleta),'Fleta')+'</td>'+statCell(row,'eliminations','kill')+statCell(row,'assists','assist')+statCell(row,'survival','death')+'<td>'+metricValue(row,'kd',kdLabel(row),'KD')+'</td>'+statCell(row,'damage','heroDamage',true)+statCell(row,'healing','cure',true)+'<td>'+metricValue(row,'weight',pct(row.sample_weight),'本场权重')+'</td><td class="reasons">'+((row.adjustments||[]).map(item=>delta(item.points,item.reason)).join('<br>')||'<span class="muted">无额外加减分</span>')+(row.warnings?.length?'<span class="cell-note">'+row.warnings.map(escapeHtml).join('；')+'</span>':'')+'</td></tr>').join('')+'</tbody></table></div></div>';
+function fullMatchPlayers(match,battletag){
+  return [{...match,battletag:battletag||match.battletag||'查询目标',team:'ally',is_target:true},...(match.match_details?.other_players||[]).map(row=>({...row,is_target:false}))];
+}
+function matchPlayerRows(match,battletag,competitive,state){
+  return sortedRows(fullMatchPlayers(match,battletag),state).map(row=>'<tr class="'+highlightClass(row)+(row.is_target?' target-player':'')+'"><td class="match-player-identity"><div class="player-labels"><span class="team-label '+(row.team==='ally'?'ally':'opponent')+'">'+(row.team==='ally'?'我方':'对方')+'</span>'+(row.is_target?'<span class="target-label">查询目标</span>':'')+'</div><strong class="match-player-tag">'+escapeHtml(row.battletag)+'</strong></td>'+heroCell(row,competitive)+(competitive?recordCell(row):'')+performanceCells(row)+reasonsCell(row)+'</tr>').join('');
+}
+function matchDetailsMarkup(match,battletag='',competitive=false,playerIndex=0,matchIndex=0){
+  const detail=match.match_details||{},state=childSorts.get(matchKey(playerIndex,matchIndex)),total=fullMatchPlayers(match,battletag).length;
+  return '<div class="match-detail-panel"><div class="match-detail-title"><strong>当局全员 '+total+' 人</strong><span>已包含查询目标 · '+(detail.rated_players??'—')+'/'+(detail.total_players??total)+'人可评分 · 点击表头切换高低排序</span></div><div class="scroll match-child-scroll" tabindex="0" aria-label="当局全员数据表"><table class="match-player-table" data-sort-scope="players" data-player-index="'+playerIndex+'" data-match-index="'+matchIndex+'"><thead><tr><th>队伍 / 玩家</th><th>英雄 / 位置</th>'+(competitive?'<th>本场段位 / 胜负</th>':'')+metricHeaders(state)+'<th>额外加减分</th></tr></thead><tbody>'+matchPlayerRows(match,battletag,competitive,state)+'</tbody></table></div></div>';
+}
+function matchExpansionMarkup(match,player,competitive,playerIndex,matchIndex){
+  return '<tr class="match-details-row" id="match-details-'+playerIndex+'-'+matchIndex+'"><td colspan="'+(competitive?16:15)+'">'+matchDetailsMarkup(match,player.battletag,competitive,playerIndex,matchIndex)+'</td></tr>';
+}
+function playerMatchesMarkup(player,competitive,playerIndex){
+  const rows=player.matches.map((match,index)=>({match,index}));
+  return sortedRows(rows,matchSorts.get(playerIndex),item=>item.match).map(item=>matchRow(item.match,competitive,playerIndex,item.index)+(expandedMatches.has(matchKey(playerIndex,item.index))?matchExpansionMarkup(item.match,player,competitive,playerIndex,item.index):'')).join('');
+}
+function updateSortHeaders(table,state){
+  for(const header of table.tHead.querySelectorAll('th[data-sort-key]')){
+    const key=header.dataset.sortKey,active=state?.key===key;
+    header.setAttribute('aria-sort',active?(state.descending?'descending':'ascending'):'none');
+    header.querySelector('.sort-indicator').textContent=active?(state.descending?'↓':'↑'):'↕';
+    header.querySelector('button').title='按'+sortLabels[key]+(active&&state.descending?'从低到高':'从高到低')+'排序';
+  }
+}
+function sortMetricTable(button){
+  const table=button.closest('table'),playerIndex=Number(table?.dataset.playerIndex),player=currentReport?.players[playerIndex];
+  if(!player||!Object.hasOwn(sortLabels,button.dataset.sortKey))return;
+  const competitive=currentReport.mode==='competitive';
+  if(table.dataset.sortScope==='players'){
+    const matchIndex=Number(table.dataset.matchIndex),match=player.matches[matchIndex];if(!match)return;
+    const key=matchKey(playerIndex,matchIndex),state=nextTableSort(childSorts.get(key),button.dataset.sortKey);
+    childSorts.set(key,state);table.tBodies[0].innerHTML=matchPlayerRows(match,player.battletag,competitive,state);updateSortHeaders(table,state);
+  }else if(table.dataset.sortScope==='matches'){
+    const state=nextTableSort(matchSorts.get(playerIndex),button.dataset.sortKey),positions=new Map();
+    for(const row of table.querySelectorAll('.match-details-row'))positions.set(row.id,row.querySelector('.match-child-scroll').scrollLeft);
+    matchSorts.set(playerIndex,state);table.tBodies[0].innerHTML=playerMatchesMarkup(player,competitive,playerIndex);updateSortHeaders(table,state);
+    for(const row of table.querySelectorAll('.match-details-row'))row.querySelector('.match-child-scroll').scrollLeft=positions.get(row.id)||0;
+  }
+  hideMetricHint();
 }
 function toggleMatchDetails(button){
-  const match=currentReport?.players[Number(button.dataset.playerIndex)]?.matches[Number(button.dataset.matchIndex)];
+  const playerIndex=Number(button.dataset.playerIndex),matchIndex=Number(button.dataset.matchIndex),player=currentReport?.players[playerIndex],match=player?.matches[matchIndex];
   if(!match?.match_details?.other_players?.length||button.disabled)return;
-  const id=button.getAttribute('aria-controls');let row=$(id);
-  if(!row){
-    const parent=button.closest('tr');row=document.createElement('tr');row.id=id;row.className='match-details-row';
-    const cell=document.createElement('td');cell.colSpan=parent.children.length;cell.innerHTML=matchDetailsMarkup(match);row.append(cell);parent.after(row);
-  }
-  const open=button.getAttribute('aria-expanded')!=='true';row.hidden=!open;
+  const key=matchKey(playerIndex,matchIndex),open=!expandedMatches.has(key),parent=button.closest('tr'),id=button.getAttribute('aria-controls');let row=$(id);
+  if(open){
+    expandedMatches.add(key);
+    if(!row){parent.insertAdjacentHTML('afterend',matchExpansionMarkup(match,player,currentReport.mode==='competitive',playerIndex,matchIndex));row=$(id);}
+  }else expandedMatches.delete(key);
+  row.hidden=!open;parent.classList.toggle('match-expanded',open);
   button.setAttribute('aria-expanded',String(open));button.textContent=open?'收起对局详情':'展开对局详情';
   hideMetricHint();
 }
@@ -250,11 +331,13 @@ function playerDetails(player,competitive=false,playerIndex=0) {
   const totals=player.averages?`<div class="detail-head"><span class="pill">${player.wins}胜${player.losses}负${player.draws}平 · 胜率${pct(player.win_rate)}</span>${hotBadge(player)}<span class="pill">Fleta>65%：${player.smurf_matches}/12场 · 7场为SMURF</span><span class="pill">KD ${kdLabel(player)} · KD≥7：${player.high_kd_matches??0}/12场</span><span class="pill">MVP ${player.mvp_matches??0} · CARRY ${player.carry_matches??0} · SVP ${player.svp_matches??0}</span><span class="weight-tags">${weightBadge('short','短局降权 '+(player.short_matches??0),'短局场数')}${weightBadge('long','长局增权 '+(player.long_matches??0),'长局场数')}${weightBadge('balanced','势均力敌 '+(player.balanced_matches??0),'双方最后一击接近的场数')}${weightBadge('stomp','碾压降权 '+(player.stomp_matches??0),'碾压局场数')}</span><span class="pill">权重合计${number(player.effective_matches)}</span><span class="muted">每10分钟：伤害 ${number(player.averages.damage_per10,0)} · 最后一击 ${number(player.averages.final_blows_per10)} · 阵亡 ${number(player.averages.survival_per10)} · 治疗 ${number(player.averages.healing_per10,0)}</span></div>`:'';
   const corrections=(player.summary_adjustments||[]).map(a=>delta(a.points,a.reason)).join(' ');
   const scoring=player.match_average==null?'':`<p class="note">对局加权均分 ${number(player.match_average,2)}${corrections?' · 综合参考修正：'+corrections:''}</p>`;
-  const rows=player.matches.map((match,matchIndex)=>matchRow(match,competitive,playerIndex,matchIndex)).join('');
+  const rows=playerMatchesMarkup(player,competitive,playerIndex),sort=matchSorts.get(playerIndex);
   const errors=player.errors?.length?'<p class="note">未计分：'+player.errors.map(e=>escapeHtml(e.match_id)+' '+escapeHtml(e.error)).join('<br>')+'</p>':'';
-  return `<details><summary>${escapeHtml(player.battletag)} · ${scoreMarkup(player)} · ${player.rated_matches}场</summary><p class="note">${sample}</p>${totals}${scoring}<div class="scroll" tabindex="0" aria-label="玩家逐场详情表"><table class="metrics"><thead><tr><th class="match-query-column">对局操作</th><th>时间 / 时长 / 组队</th><th>英雄 / 位置</th>${competitive?'<th>本场记录段位</th>':''}<th>地图</th><th>胜负</th><th>评分</th><th>最后一击占比</th><th>Fleta</th><th>击杀</th><th>助攻</th><th>阵亡</th><th>KD</th><th>伤害/10分</th><th>治疗/10分</th><th>本场权重</th><th>额外加减分</th></tr></thead><tbody>${rows}</tbody></table></div>${errors}</details>`;
+  return `<details><summary>${escapeHtml(player.battletag)} · ${scoreMarkup(player)} · ${player.rated_matches}场</summary><p class="note">${sample}</p>${totals}${scoring}<div class="scroll" tabindex="0" aria-label="玩家逐场详情表"><table class="metrics" data-sort-scope="matches" data-player-index="${playerIndex}"><thead><tr><th class="match-query-column">对局操作</th>${sortHeader('begin_ts',sort,'时间 / 时长 / 组队')}<th>英雄 / 位置</th>${competitive?'<th>本场记录段位 / 胜负</th>':''}<th>地图</th>${metricHeaders(sort)}<th>额外加减分</th></tr></thead><tbody>${rows}</tbody></table></div>${errors}</details>`;
 }
 $('details').onclick=event=>{
+  const sort=event.target.closest?.('.sort-metric');
+  if(sort?.dataset.sortKey&&Object.hasOwn(sortLabels,sort.dataset.sortKey)){sortMetricTable(sort);return;}
   const toggle=event.target.closest?.('.toggle-match-details');
   if(toggle?.dataset.matchIndex!==undefined){toggleMatchDetails(toggle);return;}
   const button=event.target.closest?.('.query-match');
@@ -268,7 +351,7 @@ $('details').onclick=event=>{
   }catch(error){status(error.message,true);}
 };
 function render(report) {
-  hideMetricHint();
+  hideMetricHint();matchSorts.clear();childSorts.clear();expandedMatches.clear();
   currentReport=report;$('horseSummary').value=report.summary_text||'';$('results').classList.remove('hidden');
   const competitive=report.mode==='competitive';$('rankHeader').classList.toggle('hidden',!competitive);
   const comparable=report.players.filter(p=>p.score!=null).length>=2;
@@ -285,9 +368,18 @@ function render(report) {
 }
 document.addEventListener('wheel', event => {
   if (event.ctrlKey || event.metaKey) return;
-  const scroll = event.target.closest?.('.scroll');
-  if (!scroll || scroll.scrollWidth <= scroll.clientWidth + 1) return;
   const raw = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+  if(!raw)return;
+  let scroll=event.target.closest?.('.scroll'),fallback=null;
+  while(scroll){
+    if(scroll.scrollWidth>scroll.clientWidth+1){
+      fallback??=scroll;
+      if(raw<0&&scroll.scrollLeft>0||raw>0&&scroll.scrollLeft<scroll.scrollWidth-scroll.clientWidth-1)break;
+    }
+    scroll=scroll.parentElement?.closest?.('.scroll')||null;
+  }
+  scroll??=fallback;
+  if(!scroll)return;
   const amount = raw * (event.deltaMode === 1 ? 20 : event.deltaMode === 2 ? scroll.clientWidth : 1);
   if (!amount) return;
   event.preventDefault();

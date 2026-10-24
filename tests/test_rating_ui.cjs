@@ -26,7 +26,7 @@ const rank={known:true,label:'黄金3',icon:'https://example.com/gold.png',role_
 const match={begin_ts:1792227400000,seconds:600,hero:'测试',role:'dps',role_label:'输出',map_name:'测试地图',metrics:{},stats:{},adjustments:[],warnings:[],rank,score:65,grade:'B',outcome_label:'胜',sample_weight:1,duration_weight:1};
 const player={battletag:'Example#1234',tier:'中等马',score:65,grade:'B',rated_matches:12,status:'complete',primary_role:'dps',matches:[match,match],errors:[],averages:{},latest_rank:rank};
 
-test('child details are lazy, have nine participants, and escape public names',()=>{
+test('child details are lazy, merge the target into ten players, and escape public names',()=>{
   const {context}=ui();
   const others=Array.from({length:9},(_,i)=>({...match,battletag:i===0?'<script>attack</script>':'其他玩家'+i+'#1234',team:i<4?'ally':'opponent'}));
   const complete={...match,match_details:{other_players:others,total_players:10,rated_players:10}};
@@ -35,9 +35,11 @@ test('child details are lazy, have nine participants, and escape public names',(
   assert.match(parent,/aria-controls="match-details-2-3"/);
   assert.doesNotMatch(parent,/其他玩家|match-player-table/);
   assert.match(context.matchRow(match),/toggle-match-details[^>]*disabled/);
-  const html=context.matchDetailsMarkup(complete);
-  assert.equal((html.match(/match-player-tag/g)||[]).length,9);
-  assert.match(html,/当局其余 9 人/);
+  const html=context.matchDetailsMarkup(complete,player.battletag,true);
+  assert.equal((html.match(/class="match-player-tag"/g)||[]).length,10);
+  assert.match(html,/当局全员 10 人/);
+  assert.equal((html.match(/class="target-label"/g)||[]).length,1);
+  assert.match(html,/Example#1234/);
   assert.match(html,/&lt;script&gt;attack/);
   assert.doesNotMatch(html,/<script>/);
 });
@@ -175,11 +177,12 @@ test('hot streak appears alongside the win rate in overview and detail header',(
 test('classic match table restores independent columns without losing current form indicators',()=>{
   const {context}=ui();
   const html=context.matchRow({...match,stats:{kill:20,assist:8,death:3,heroDamage:6000,cure:2000,finalHit:10},kd:20/3,team_final_blows:30,opponent_final_blows:31,balanced_final_blows:true,long_match:true},true);
-  assert.equal((html.match(/<td(?:\s[^>]*)?>/g)||[]).length,17);
+  assert.equal((html.match(/<td(?:\s[^>]*)?>/g)||[]).length,16);
   for(const text of ['长局增权','势均力敌']) assert.ok(html.includes(text),text);
   const detailed=context.playerDetails(player,true);
-  assert.equal((detailed.match(/<th\b/g)||[]).length,17);
-  for(const text of ['本场记录段位','最后一击占比','Fleta','击杀','助攻','阵亡','KD','伤害/10分','治疗/10分']) assert.ok(detailed.includes(text),text);
+  assert.equal((detailed.match(/<th\b/g)||[]).length,16);
+  for(const text of ['本场记录段位','最后一击占比','FLETA指数','击杀','助攻','阵亡','KD','伤害/10分','治疗/10分']) assert.ok(detailed.includes(text),text);
+  assert.doesNotMatch(detailed,/<th>胜负<\/th>/);
   assert.doesNotMatch(detailed,/colgroup/);
 });
 
@@ -255,4 +258,49 @@ test('wheel remains native on page margins, small tables and browser zoom',()=>{
   for(const [table,ctrlKey] of [[null,false],[{scrollWidth:400,clientWidth:500},false],[{scrollWidth:1000,clientWidth:500},true]]){
     listeners.get('wheel')({target:{closest:()=>table},ctrlKey,deltaY:80,deltaX:0,deltaMode:0,preventDefault(){assert.fail('Native scrolling/zoom must remain available');}});
   }
+});
+
+test('sorting handles all requested metrics, infinity, missing values and stable ties without mutating input',()=>{
+  const {context}=ui();
+  const rows=[
+    {...match,id:'low',score:20,kd:2,final_blow_share:.1,fleta:.2,sample_weight:.8,stats:{kill:4,assist:1,death:2,heroDamage:2000,cure:100}},
+    {...match,id:'high',score:90,kd:5,final_blow_share:.4,fleta:.8,sample_weight:1.2,stats:{kill:10,assist:6,death:5,heroDamage:8000,cure:900}},
+    {...match,id:'missing',score:null,kd:null,final_blow_share:null,fleta:null,sample_weight:null,stats:{}},
+  ];
+  for(const key of ['score','final_blow_share','fleta','kill','assist','death','kd','damage','healing','sample_weight']){
+    assert.deepEqual(Array.from(context.sortedRows(rows,{key,descending:true}),row=>row.id),['high','low','missing'],key);
+    assert.deepEqual(Array.from(context.sortedRows(rows,{key,descending:false}),row=>row.id),['low','high','missing'],key);
+  }
+  assert.deepEqual(rows.map(row=>row.id),['low','high','missing']);
+  assert.deepEqual(Array.from(context.sortedRows([{id:'perfect',kd_perfect:true},{id:'finite',kd:100},{id:'unknown',kd:null}],{key:'kd',descending:true}),row=>row.id),['perfect','finite','unknown']);
+  assert.deepEqual(Array.from(context.sortedRows([{id:'first',score:50},{id:'second',score:50}],{key:'score',descending:true}),row=>row.id),['first','second']);
+  assert.equal(context.tableValue({stats:{heroDamage:3000},seconds:300},'damage'),6000);
+  assert.equal(context.nextTableSort(null,'score').descending,true);
+  assert.equal(context.nextTableSort({key:'score',descending:true},'score').descending,false);
+});
+
+test('both match and full-player tables expose the same independent metric sort controls',()=>{
+  const {context}=ui();
+  const full={...match,match_details:{other_players:Array.from({length:11},(_,i)=>({...match,battletag:'玩家'+i+'#1234'})),rated_players:12,total_players:12}};
+  const parent=context.playerDetails({...player,matches:[full]},true,0);
+  const child=context.matchDetailsMarkup(full,player.battletag,true,0,0);
+  for(const key of ['score','final_blow_share','fleta','kill','assist','death','kd','damage','healing','sample_weight']){
+    assert.ok(parent.includes('data-sort-key="'+key+'"'),key);
+    assert.ok(child.includes('data-sort-key="'+key+'"'),key);
+  }
+  assert.equal((child.match(/class="match-player-tag"/g)||[]).length,12);
+  assert.equal(full.match_details.other_players.length,11);
+});
+
+test('wheel over a child table falls back to its parent when it cannot scroll and hands off at its edge',()=>{
+  const {listeners}=ui();
+  const parent={scrollWidth:1400,clientWidth:700,scrollLeft:0};
+  const child={scrollWidth:700,clientWidth:700,scrollLeft:0,parentElement:{closest:()=>parent}};
+  let prevented=0;
+  const wheel=delta=>listeners.get('wheel')({target:{closest:()=>child},deltaX:0,deltaY:delta,deltaMode:0,preventDefault(){prevented++;}});
+  wheel(80);assert.equal(parent.scrollLeft,80);assert.equal(child.scrollLeft,0);
+  child.scrollWidth=800;child.scrollLeft=100;
+  wheel(50);assert.equal(parent.scrollLeft,130);assert.equal(child.scrollLeft,100);
+  wheel(-40);assert.equal(child.scrollLeft,60);assert.equal(parent.scrollLeft,130);
+  assert.equal(prevented,3);
 });
