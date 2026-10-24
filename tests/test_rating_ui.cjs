@@ -49,6 +49,7 @@ test('metric buttons show real contributions and exact threshold explanations wi
   assert.match(hint,/全队参考：4.00 \/10分钟/);
   assert.match(hint,/-3.3 分/);
   assert.match(hint,/阵亡参考扣分 -2.5分/);
+  assert.match(hint,/比队友阵亡少也可能扣分/);
   assert.match(context.metricHint(row,'fleta'),/败方严格超过80%/);
   assert.match(context.metricHint(row,'healing'),/不按0分处理/);
   const html=context.matchRow({...row,stats:{kill:10,assist:2,death:9}});

@@ -62,7 +62,12 @@ function metricHint(row,key) {
     const value=share?pct(component.value):number(component.per10??component.value,2)+(component.per10!=null?' /10分钟':'');
     text=(metricNames[key]||'该项')+'按角色和队内参考比较'+(key==='survival'?'，阵亡更少通常更好':'，表现更高通常更好')+'。本人 '+value+'；'+(component.comparison||'参考数据')+'：'+reference+'；角色内有效权重 '+pct(component.weight)+'；相对参考贡献 '+signed(component.contribution)+' 分。';
     if(share)text+=' '+rules.final_blow_share;
-    if(key==='survival')text+=' 同时考虑局长与全队阵亡环境，低阵亡局降低敏感度；辅助高Fleta可触发高阵亡豁免。';
+    if(key==='survival'){
+      const allowance=row.role==='support'?4:6;
+      text+=' 同时考虑局长与全队阵亡环境，低阵亡局降低敏感度。'+(row.role==='support'?'辅助':'坦克/输出')+'每10分钟超过'+allowance+'次阵亡时，还会修正生存基础贡献，因此比队友阵亡少也可能扣分。';
+      if(component.per10>allowance&&!row.support_death_exempt)text+=' 本场每10分钟'+number(component.per10,2)+'次，已纳入这项修正。';
+      text+=' 辅助高Fleta可触发高阵亡豁免。';
+    }
   }else if(metricNames[key]&&key!=='final_blow_share'){
     text=aggregate?'按有效对局权重汇总的每10分钟数据，具体贡献请查看各场数值。':'该角色不使用此项基础权重，或参考数据不足；未纳入该项基础分，不按0分处理。';
   }
