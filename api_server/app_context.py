@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -32,6 +33,7 @@ class AppState:
     bindings_manager: Any = None
     batch_rating: Any = None
     hero_rates: Any = None
+    ocr_warmup_task: Any = None
     initialized: bool = False
 
 
@@ -221,12 +223,18 @@ async def initialize_modules(cfg: Dict[str, Any]) -> AppState:
     state.hero_rates = HeroRatesCache()
     await state.hero_rates.start()
 
+    from .batch_rating.ocr import prepare_ocr
+    state.ocr_warmup_task = asyncio.create_task(prepare_ocr(), name="ow-ocr-warmup")
+
     state.initialized = True
     logger.info("应用模块初始化完成")
     return state
 
 
 async def shutdown_modules(state: AppState) -> None:
+    if state.ocr_warmup_task is not None:
+        state.ocr_warmup_task.cancel()
+        await asyncio.gather(state.ocr_warmup_task, return_exceptions=True)
     if state.hero_rates is not None:
         await state.hero_rates.close()
     if state.batch_rating is not None:

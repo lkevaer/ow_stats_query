@@ -54,6 +54,11 @@ test('metric buttons show real contributions and exact threshold explanations wi
   assert.match(hint,/比队友阵亡少也可能扣分/);
   assert.match(context.metricHint(row,'fleta'),/败方严格超过80%/);
   assert.match(context.metricHint(row,'healing'),/不按0分处理/);
+  const supportHint=context.metricHint({...row,role:'support'},'survival');
+  assert.match(supportHint,/普通负荷通常不超过10分/);
+  assert.match(supportHint,/15分仅限制这项额外扣分，生存基础贡献仍另计/);
+  assert.match(supportHint,/辅助每10分钟超过4次阵亡/);
+  assert.match(context.delta(-5,'辅助阵亡偏多'),/15分仅限制这项额外扣分/);
   const html=context.matchRow({...row,stats:{kill:10,assist:2,death:9}});
   for(const value of ['10','2','9','80.0%'])assert.ok(html.includes('>'+value+'</button>'),value);
   assert.match(html,/data-explanation=/);

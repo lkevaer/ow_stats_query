@@ -41,6 +41,7 @@ showBinding();
 const escapeHtml = x => String(x ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const roleNames = {tank:'坦克 T',dps:'输出 C',support:'辅助 N'};
 const metricNames = {damage:'伤害',final_blows:'最后一击',survival:'生存',eliminations:'击杀',healing:'治疗',assists:'助攻',mitigation:'承伤',final_blow_share:'最后一击占比'};
+const supportDeathExplanation='新查询中的“辅助阵亡偏多”是独立额外扣分：略多于队友时温和递增，普通负荷通常不超过10分；只有阵亡率、队内差距、倍数和实际次数都明显突出时，才逐步接近15分的展示上限。15分仅限制这项额外扣分，生存基础贡献仍另计；Fleta达到50%的豁免保留。';
 function metricHint(row,key) {
   const aggregate=Array.isArray(row.matches), adjustments=aggregate?row.summary_adjustments||[]:row.adjustments||[];
   const rules={
@@ -76,6 +77,7 @@ function metricHint(row,key) {
   if(actual.length)text+=' '+(aggregate?'本次综合修正：':'本场实际规则：')+actual.map(item=>item.reason+' '+signed(item.points)+'分').join('；')+'。';
   else if(related&&!aggregate)text+=' 本场没有额外触发与此项对应的加减分。';
   if(key==='survival'&&row.support_death_exempt)text+=' 本场已触发辅助高Fleta阵亡豁免。';
+  if(row.role==='support'&&(key==='survival'||key==='score'))text+=' '+supportDeathExplanation;
   return text;
 }
 function metricButton(label,explanation,name='评分数据') {
@@ -157,7 +159,10 @@ function number(value,digits=1) { return value==null?'—':Number(value).toFixed
 function pct(value) { return value==null?'—':number(value*100)+'%'; }
 function signed(value) { return (value>0?'+':'')+number(value); }
 function severity(value) { const level=Math.abs(value)>=12?3:Math.abs(value)>=4?2:1;return value>0?'pos'+level:value<0?'neg'+level:'zero'; }
-function delta(value,label='',explanation='') { return '<span class="delta '+severity(value)+'">'+metricButton(signed(value),explanation||(label?'本次实际规则：'+label+'，分数修正 '+signed(value)+' 分。':'该项相对参考的分数贡献；点击同行原始数值可查看参考标准及规则。'),'分数贡献')+(label?' '+escapeHtml(label):'')+'</span>'; }
+function delta(value,label='',explanation='') {
+  const note=explanation||(label?'本次实际规则：'+label+'，分数修正 '+signed(value)+' 分。'+(label.includes('辅助阵亡')?' '+supportDeathExplanation:''):'该项相对参考的分数贡献；点击同行原始数值可查看参考标准及规则。');
+  return '<span class="delta '+severity(value)+'">'+metricButton(signed(value),note,'分数贡献')+(label?' '+escapeHtml(label):'')+'</span>';
+}
 function tierPill(player) { return player.tier?'<span class="pill '+(player.tier==='上等马'?'upper':player.tier==='下等马'?'lower':player.tier==='中等马'?'middle':'')+'">'+escapeHtml(player.tier)+'</span>':''; }
 function scoreGrade(row) { return row.score!=null&&row.score>=100?'SSS':row.score_grade||row.grade; }
 function gradeTone(grade) { return ['SSS','S','A','B','C','D'].includes(grade)?'grade-'+grade.toLowerCase():'grade-unknown'; }

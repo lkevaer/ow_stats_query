@@ -100,13 +100,13 @@ class ScoringTests(unittest.TestCase):
         data["teammateList"][0]["finalHit"] = 80
         self.assertGreater(score(data)["fleta"], 1)
 
-    def test_support_highest_deaths_carry_large_penalty(self):
+    def test_support_highest_deaths_remain_penalized_with_a_bounded_extra_item(self):
         low = match("s")
         low["teammateList"][0].update(death=2,finalHit=3)
         high = deepcopy(low)
         high["teammateList"][0]["death"] = 15
         self.assertGreater(score(low)["score"] - score(high)["score"], 25)
-        self.assertTrue(any(a["points"] < -20 for a in score(high)["adjustments"]))
+        self.assertTrue(any(-15 <= a["points"] < -10 for a in score(high)["adjustments"]))
 
     def test_support_below_fleta_forty_does_not_erase_highest_death_penalty(self):
         data = match("s")

@@ -1,8 +1,8 @@
 from copy import deepcopy
 import unittest
 
-from api_server.batch_rating.context import party_info
-from api_server.batch_rating.scoring import aggregate_player, grade, score_match, scoring_rules
+from api_server.batch_rating.context import party_info, support_survival
+from api_server.batch_rating.scoring import _displayed_penalty_delta, aggregate_player, calibrate_score, grade, score_match, scoring_rules
 from test_batch_rating import HEROES, match, player, score
 
 
@@ -28,10 +28,12 @@ class DeathContextTests(unittest.TestCase):
         self.assertLess(death_penalty(result), 4)
         self.assertGreater(result["metrics"]["survival"]["points"], 54)
 
-    def test_six_or_seven_when_teammates_have_five_is_substantial(self):
+    def test_one_or_two_extra_deaths_are_gradual_without_a_large_highest_premium(self):
         six = score(full_match(deaths=(6, 5, 5, 5, 5)))
         seven = score(full_match(deaths=(7, 5, 5, 5, 5)))
-        self.assertGreater(death_penalty(six), 6)
+        self.assertGreater(death_penalty(six), 1)
+        self.assertLess(death_penalty(six), 3)
+        self.assertLess(death_penalty(seven), 7)
         self.assertGreater(death_penalty(seven), death_penalty(six))
 
     def test_all_roles_reduce_death_sensitivity_in_low_death_games(self):
@@ -44,7 +46,8 @@ class DeathContextTests(unittest.TestCase):
     def test_all_ten_deaths_do_not_excuse_support_even_when_tied(self):
         result = score(full_match(deaths=(10, 10, 10, 10, 10), enemy_deaths=15))
         self.assertFalse(result["death_context"]["low_team_deaths"])
-        self.assertGreaterEqual(death_penalty(result), 10)
+        self.assertGreater(death_penalty(result), 4)
+        self.assertLess(death_penalty(result), 8)
         self.assertLessEqual(result["metrics"]["survival"]["points"], 36)
         self.assertFalse(any(a["reason"] == "辅助低阵亡" for a in result["adjustments"]))
 
@@ -53,7 +56,7 @@ class DeathContextTests(unittest.TestCase):
         favorable = score(full_match(enemy_deaths=9))
         self.assertFalse(favorable["is_stomp"])
         self.assertTrue(favorable["death_context"]["enemy_deaths_clearly_higher"])
-        self.assertGreater(death_penalty(even) - death_penalty(favorable), 3)
+        self.assertGreater(death_penalty(even) - death_penalty(favorable), .2)
         self.assertGreater(death_penalty(favorable), 0)
         self.assertTrue(any("免除" in w for w in favorable["warnings"]))
         two_extra = score(full_match(deaths=(7, 5, 5, 5, 5), enemy_deaths=10))
@@ -84,7 +87,78 @@ class DeathContextTests(unittest.TestCase):
         data["gameTimeSec"] = 1800
         result = score(data)
         self.assertFalse(result["death_context"]["low_team_deaths"])
-        self.assertGreater(death_penalty(result), 3)
+        self.assertGreater(death_penalty(result), 0)
+        self.assertLess(death_penalty(result), 3)
+
+    def test_ordinary_or_short_noisy_death_loads_do_not_reach_fifteen(self):
+        for deaths, seconds, ceiling in [
+            ((9, 5, 5, 5, 5), 600, 10),
+            ((10, 5, 5, 5, 5), 600, 10),
+            ((12, 8, 8, 8, 8), 600, 11),
+            ((4, 2, 2, 2, 2), 120, 10),
+        ]:
+            with self.subTest(deaths=deaths, seconds=seconds):
+                data = full_match(deaths=deaths)
+                data["gameTimeSec"] = seconds
+                self.assertLessEqual(death_penalty(score(data)), ceiling)
+
+    def test_fifteen_is_a_displayed_point_ceiling_even_with_a_low_base(self):
+        for damage in [0, 2000, 18000, 100000]:
+            with self.subTest(damage=damage):
+                data = full_match(deaths=(18, 5, 5, 5, 5))
+                data["teammateList"][0].update(heroDamage=damage, cure=damage)
+                result = score(data)
+                extra = death_penalty(result)
+                self.assertLessEqual(extra, 15)
+                self.assertGreater(extra, 14.9)
+
+    def test_the_ceiling_approaches_fifteen_smoothly_only_for_clear_outliers(self):
+        context = {"sensitivity": 1., "low_team_deaths": False, "enemy_deaths_clearly_higher": False}
+        others = [{"death": 7} for _ in range(4)]
+        below = support_survival(13.99, others, 600, context)[0]
+        full = support_survival(14, others, 600, context)[0]
+        self.assertLess(below, full)
+        self.assertLess(full - below, .02)
+        self.assertEqual(full, 15)
+
+    def test_missing_team_deaths_do_not_invent_relative_excess(self):
+        context = {"sensitivity": 1., "low_team_deaths": False, "enemy_deaths_clearly_higher": False}
+        penalty, high, waived = support_survival(20, [{"death": None}, {"death": 1}], 600, context)
+        self.assertLessEqual(penalty, 6)
+        self.assertTrue(high)
+        self.assertFalse(waived)
+
+    def test_inverse_calibration_never_turns_a_deduction_into_an_increase(self):
+        for base in [0., 1e-9, .001, .1, 1., 5., 10., 25., 50., 75., 99., 100.]:
+            for penalty in [0., .01, 1., 10., 15.]:
+                for factor in [1., .72]:
+                    with self.subTest(base=base, penalty=penalty, factor=factor):
+                        raw = _displayed_penalty_delta(base, penalty)
+                        self.assertGreaterEqual(raw, 0)
+                        self.assertLessEqual(raw, base + 1e-10)
+                        before = calibrate_score(base) * factor
+                        after = calibrate_score(base - raw) * factor
+                        self.assertLessEqual(after, before + 1e-10)
+                        self.assertLessEqual(before - after, penalty * factor + 1e-8)
+
+    def test_low_base_and_existing_hero_factor_preserve_cap_and_score_accounting(self):
+        data = full_match(deaths=(50, 3, 3, 3, 3))
+        data["teammateList"][0].update(heroDamage=0, cure=0, kill=0, assist=0, finalHit=0)
+        for row in data["teammateList"][1:]:
+            row.update(heroDamage=100000, cure=100000, kill=1000, assist=1000, finalHit=100)
+        regular = score(data)
+        self.assertLess(regular["base_score"], 30)
+        self.assertGreaterEqual(regular["score"], 0)
+        self.assertLess(regular["score"], regular["base_score"])
+        self.assertLessEqual(death_penalty(regular), 15)
+        heroes = {**HEROES, "mercy": {"name": "天使", "roleType": "healer"}}
+        data["teammateList"][0]["heroGuid"] = "mercy"
+        scaled = score_match(data, {}, customer_token="", bnet_id="me#1234", battletag="me#1234", heroes=heroes)
+        self.assertAlmostEqual(scaled["score"], regular["score"] * .72, delta=.01)
+        self.assertLessEqual(death_penalty(scaled), 15 * .72)
+        for result in [regular, scaled]:
+            self.assertAlmostEqual(result["score"], result["base_score"] + sum(item["points"] for item in result["adjustments"]), delta=.015)
+            self.assertFalse(any("天使" in item["reason"] for item in result["adjustments"]))
 
 
 class AwardsAndLossTests(unittest.TestCase):

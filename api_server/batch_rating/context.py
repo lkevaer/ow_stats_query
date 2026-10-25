@@ -42,23 +42,37 @@ def survival_points(points: float, death: float, seconds: float, role: str, cont
 
 
 def support_survival(death: float, others: list[dict], seconds: float, context: dict) -> tuple[float, bool, bool]:
-    """Return penalty, whether deaths are high, and a waived highest-death premium."""
+    """Return a bounded displayed-point penalty, high-death flag, and waiver.
+
+    The extra penalty is separate from the survival metric's base contribution.
+    Ordinary death loads stay at or below ten points. The ceiling only grows
+    toward fifteen when duration, relative excess, ratio and raw counts all
+    provide evidence of an exceptional death load.
+    """
     values = [numeric(p, "death") for p in others]
     rate = death * 600 / seconds
-    absolute = min(16., max(0., rate - 5) * 2 + max(0., death - 8) * .5)
+    absolute = min(6., max(0., rate - 5.5) * .9 + max(0., death - 10) * .15)
     if not values or any(d is None for d in values):
         return absolute, rate >= 6, False
     median = statistics.median(values)
     excess = max(0., death - median)
-    relative = min(20., excess * 600 / seconds * 2.4 + 4 * excess / max(median, 1)) * context["sensitivity"]
+    excess_rate = excess * 600 / seconds
+    relative = min(8., excess_rate * 1.25 + 2 * excess / max(median, 1)) * context["sensitivity"]
     if median >= 6 and death >= median:
-        relative += min(6., (median - 5) * .8)
-    # Being highest is not enough: there must also be a substantial death load.
+        relative += min(2., (median - 5) * .3)
+    # Avoid a fixed five-point surcharge for being just one death higher.
     premium = 0.
     waived = bool(context["enemy_deaths_clearly_higher"] and 0 < excess <= 1 and death - max(values) <= 1)
-    if death > max(values) and death >= 5 and not context["low_team_deaths"] and not waived:
-        premium = min(10., 5 + excess * 600 / seconds) * context["sensitivity"]
-    return min(40., absolute + relative + premium), bool(excess > 0 or rate >= 6), waived
+    if death > max(values) and death >= 6 and not context["low_team_deaths"] and not waived:
+        premium = min(2.5, max(0., excess_rate - .5) * .8) * context["sensitivity"]
+    evidence = min(
+        max(0., min(1., (rate - 10) / 4)),
+        max(0., min(1., (excess_rate - 3) / 3)),
+        max(0., min(1., (death / max(median, 1) - 1.4) / .6)),
+        max(0., min(1., (excess - 3) / 3)),
+    )
+    ceiling = 10. + 5. * evidence
+    return min(ceiling, absolute + relative + premium), bool(excess > 0 or rate >= 6), waived
 
 
 def kd_stats(kills: float | None, deaths: float | None) -> dict:

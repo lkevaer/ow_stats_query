@@ -7,7 +7,7 @@ from .rank import match_rank
 from .ocr_candidates import normalize_tags
 from .context import death_context, kd_stats, match_weights, numeric, party_info, support_survival, survival_points
 
-VERSION = "team-relative-2026s5-v7"
+VERSION = "team-relative-2026s5-v8"
 ROLE_LABELS = {"tank": "坦克", "dps": "输出", "support": "辅助"}
 WEIGHTS = {
     "tank": {"damage": .30, "final_blows": .27, "survival": .23, "eliminations": .10, "final_blow_share": .08, "mitigation": .02},
@@ -36,6 +36,19 @@ def grade(score: float) -> str:
 def calibrate_score(score: float) -> float:
     """Lift the middle range (70 -> 80) while retaining both endpoints and ordering."""
     return 100 * (max(0., min(100., score)) / 100) ** (math.log(.8) / math.log(.7))
+
+
+def _displayed_penalty_delta(base: float, penalty: float) -> float:
+    """Convert a displayed-point deduction back to raw scoring units.
+
+    Bounding a raw deduction is insufficient: the calibration curve can turn
+    fifteen raw points into more than fifteen displayed points at a low base.
+    Round toward zero so the existing three-decimal adjustment storage cannot
+    accidentally exceed the intended visible ceiling.
+    """
+    target = max(0., calibrate_score(base) - penalty)
+    target_base = 100 * (target / 100) ** (math.log(.7) / math.log(.8))
+    return max(0., math.floor((base - target_base) * 1000) / 1000)
 
 
 def relative_points(value: float, reference: float, *, inverse: bool = False, smoothing: float = 1) -> float:
@@ -164,7 +177,7 @@ def _score_player(data: dict, source: dict, *, own: dict, team: list[dict], oppo
         if support_exempt:
             warnings.append("辅助Fleta≥50%，本场不触发高阵亡惩罚")
         elif penalty > 0:
-            adjust(-penalty, "辅助阵亡偏多" if not context["low_team_deaths"] else "辅助阵亡略多，低阵亡局减轻扣分")
+            adjust(-_displayed_penalty_delta(base, penalty), "辅助阵亡偏多" if not context["low_team_deaths"] else "辅助阵亡略多，低阵亡局减轻扣分")
         if waived and not support_exempt:
             warnings.append("对手阵亡明显更多，仅多阵亡一次，免除辅助最高阵亡额外扣分")
         if not high_death and all(x is not None for x in other_deaths) and death <= min(other_deaths) and death < max(other_deaths):
@@ -452,6 +465,7 @@ def scoring_rules() -> dict:
             "T兼顾伤害、生存和最后一击，占比达30%额外加分；C侧重伤害与最后一击，占比达40%额外加分；全位置占比达50%高权重加分。",
             "辅助兼顾生存、治疗、伤害与助攻；Fleta达到40%给予较高权重进攻加分，达到50%给予高权重加分且不触发高阵亡惩罚，使用Fleta本身而非最后一击占比判断。",
             "阵亡按时长、队内差距与双方整体阵亡量综合考量；全队低阵亡时所有位置降低扣分敏感度，辅助仅为全队最高不自动重扣。",
+            "辅助阵亡额外扣分采用温和递增，略高于队友不再叠加固定重扣；普通负荷通常不超过10分，仅局内时长归一化阵亡、相对差距、倍数与实际多出的阵亡都明显突出时，才逐步接近15分的展示上限。此项与生存基础贡献分开计算。",
             "辅助Fleta未达到50%时，非碾压局中对手阵亡明显更多、辅助仅多阵亡一次免除最高阵亡额外扣分；全队高阵亡不能自动豁免辅助生存要求。",
             "败方高Fleta减轻生存扣分；队友全为负战绩而本人正战绩时进一步照顾，但不无限抵消高阵亡。",
             "最近12场至少7场Fleta严格大于65%标记SMURF，等于65%不计入，给予综合评分中最高权重的专项加分；不足12场但已有7场达标也可确认，其余仍标记样本不足。",
