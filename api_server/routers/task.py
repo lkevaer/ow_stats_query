@@ -7,10 +7,12 @@ import time
 import uuid
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request, Depends
 
 from ..app_context import AppState
 from ..query_audit import record_successful_ids
+from ..security import require_admin, internal_error
+from ..work_queue import work_queue
 from ..db.task_db import (
     cleanup_expired_tasks,
     create_task as db_create_task,
@@ -29,7 +31,7 @@ from .stream import _ENDPOINT_DISPATCH, _ENDPOINTS_NEED_ACCOUNT, _STAGE_PCT
 logger = logging.getLogger("ow_api_server.task")
 router = APIRouter(prefix="/api/task", tags=["task"])
 
-_TASK_TTL_SECONDS = 300
+_TASK_TTL_SECONDS = 3600
 
 init_task_db()
 
@@ -76,11 +78,14 @@ async def _run_task(task_id: str, endpoint: str, params: Dict[str, Any], state: 
         logger.info("Task %s completed successfully", task_id)
 
     except HTTPException as exc:
-        update_task_error(task_id, str(exc.detail), exc.status_code)
+        update_task_error(task_id, internal_error()["error"] if exc.status_code in {500, 502} else str(exc.detail), exc.status_code)
         logger.error("Task %s failed with HTTP error: %s", task_id, exc.detail)
 
-    except Exception as exc:
-        update_task_error(task_id, f"查询失败：{exc}", 500)
+    except asyncio.CancelledError:
+        update_task_error(task_id, "查询已取消或超时，请稍后重试", 504)
+        raise
+    except Exception:
+        update_task_error(task_id, internal_error()["error"], 500)
         logger.exception("Task %s failed with exception", task_id)
 
     finally:
@@ -115,10 +120,13 @@ async def create_task(request: Request, body: Dict[str, Any] = Body(...)):
     if endpoint in _ENDPOINTS_NEED_ACCOUNT:
         require_account_ready(state)
 
-    task_id = str(uuid.uuid4())[:8]
-    db_create_task(task_id, endpoint, params)
-
-    asyncio.create_task(_run_task(task_id, endpoint, params, state))
+    task_id = uuid.uuid4().hex
+    task = work_queue(state).submit(lambda: _run_task(task_id, endpoint, params, state))
+    try:
+        db_create_task(task_id, endpoint, params)
+    except Exception:
+        task.cancel()
+        raise
 
     return {
         "success": True,
@@ -131,7 +139,10 @@ async def create_task(request: Request, body: Dict[str, Any] = Body(...)):
 
 
 @router.get("/{task_id}")
-async def get_task(task_id: str):
+async def get_task(task_id: str, request: Request):
+    # Keep the literal list path protected even on old FastAPI route ordering.
+    if task_id == "list":
+        return await list_tasks(request)
     cleanup_expired_tasks(_TASK_TTL_SECONDS)
 
     task = db_get_task(task_id)
@@ -160,7 +171,8 @@ async def get_task(task_id: str):
 
 
 @router.get("/list")
-async def list_tasks():
+async def list_tasks(request: Request):
+    require_admin(request)
     cleanup_expired_tasks(_TASK_TTL_SECONDS)
     tasks = db_list_tasks()
     return {
@@ -182,7 +194,7 @@ async def list_tasks():
 
 
 @router.delete("/{task_id}")
-async def delete_task(task_id: str):
+async def delete_task(task_id: str, _=Depends(require_admin)):
     if db_delete_task(task_id):
         return {"success": True, "message": "任务已删除"}
     raise HTTPException(status_code=404, detail="任务不存在")

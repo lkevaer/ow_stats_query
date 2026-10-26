@@ -54,6 +54,7 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Dict[str, Any]:
     raw.setdefault("features", {})
     raw.setdefault("server", {})
     raw.setdefault("rate_limit", {})
+    raw.setdefault("security", {})
     raw.setdefault("bindings_file", "bindings.json")
     raw["bindings_file"] = _env_override(raw["bindings_file"], "OW_BINDINGS_FILE")
 
@@ -63,6 +64,12 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Dict[str, Any]:
     server["host"] = _env_override(server.get("host", "127.0.0.1"), "OW_SERVER_HOST")
     server["port"] = _env_override(int(server.get("port", 8080)), "OW_SERVER_PORT")
     server["api_key"] = _env_override(str(server.get("api_key") or ""), "OW_SERVER_API_KEY")
+    server["enable_docs"] = _env_override(bool(server.get("enable_docs", False)), "OW_ENABLE_DOCS")
+    security = raw["security"]
+    security["admin_api_key"] = _env_override(str(security.get("admin_api_key") or ""), "OW_ADMIN_API_KEY")
+    proxy_env = os.getenv("OW_TRUSTED_PROXY_CIDRS")
+    if proxy_env is not None:
+        security["trusted_proxy_cidrs"] = [value.strip() for value in proxy_env.split(",") if value.strip()]
     cors_env = os.getenv("OW_SERVER_CORS_ORIGINS")
     if cors_env:
         server["cors_origins"] = _parse_cors_env(cors_env)
@@ -100,6 +107,9 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Dict[str, Any]:
         ("OW_RATE_APIKEY_PER_MIN", "requests_per_api_key_per_minute", 300),
         ("OW_RATE_USER_PER_MIN", "requests_per_user_token_per_minute", 30),
         ("OW_RATE_WINDOW_SEC", "window_seconds", 60),
+        ("OW_RATE_HEAVY_IP_PER_MIN", "heavy_queries_per_ip_per_minute", 3),
+        ("OW_RATE_BROWSER_COOLDOWN_SEC", "heavy_browser_cooldown_seconds", 30),
+        ("OW_RATE_OCR_IP_PER_MIN", "ocr_per_ip_per_minute", 6),
     ):
         env_val = os.getenv(k_env)
         if env_val is not None and env_val.strip():

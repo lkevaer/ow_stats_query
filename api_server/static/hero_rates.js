@@ -26,8 +26,8 @@
     }
     $('heroRateRows').innerHTML=heroes.map((hero,index)=>{
       const color=/^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(hero.colorCode)?hero.colorCode:'#748397';
-      const url=typeof hero.thumbnailUrl==='string'&&hero.thumbnailUrl.startsWith('https://')?hero.thumbnailUrl:'';
-      let html='<tr class="hero-rate-row'+(root.__OW_STATIC_REPORT__?'':' reveal-row')+'" style="--row-delay:'+Math.min(index,14)*26+'ms" data-hero="'+escape(hero.heroId)+'"><td><div class="hero-identity"><span class="hero-portrait" style="--hero-color:'+color+'">'+(url?'<img src="'+escape(url)+'" alt="'+escape(hero.name)+'" loading="eager" referrerpolicy="no-referrer" onerror="this.hidden=true">':'')+'</span><div><div class="hero-name">'+escape(hero.name)+'</div><span class="hero-role">'+roleIcon(hero.role)+escape(roleNames[hero.role]||'')+'</span></div></div></td>';
+      const url=GameAssets.url('avatar',hero.thumbnailUrl,hero.name);
+      let html='<tr class="hero-rate-row'+(root.__OW_STATIC_REPORT__?'':' reveal-row')+'" style="--row-delay:'+Math.min(index,14)*26+'ms" data-hero="'+escape(hero.heroId)+'"><td><div class="hero-identity"><span class="hero-portrait" style="--hero-color:'+color+'"><img src="'+escape(url)+'" alt="'+escape(hero.name)+'" loading="eager" data-asset-kind="avatar" referrerpolicy="no-referrer" onerror="GameAssets.failed(this)"></span><div><div class="hero-name">'+escape(hero.name)+'</div><span class="hero-role">'+roleIcon(hero.role)+escape(roleNames[hero.role]||'')+'</span></div></div></td>';
       for(const key of ['pickRate','winRate','banRate']){
         const value=hero[key],range=ranges[key];
         const width=value==null?0:range.max===range.min?100:Math.max(0,Math.min(100,(value-range.min)/(range.max-range.min)*100));

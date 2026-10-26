@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
+from functools import lru_cache
 import secrets
+import shutil
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
@@ -30,6 +34,8 @@ from .ratelimit import LIMITERS  # noqa: E402
 from .response_utils import error_response  # noqa: E402
 from .query_audit import record_successful_ids  # noqa: E402
 from .frontend import rating_page  # noqa: E402
+from .security import client_ip, is_local, require_admin, internal_error, admit_heavy, RequestBodyLimit  # noqa: E402
+from .work_queue import work_queue  # noqa: E402
 from .routers import (  # noqa: E402
     bind_router,
     hero_router,
@@ -55,9 +61,10 @@ _rate_cfg = (_config.get("rate_limit") or {}) if isinstance(_config, dict) else 
 app = FastAPI(
     title="守望先锋数据查询 Web API",
     version="2.0.0",
-    docs_url="/docs" if _server_cfg.get("enable_docs", True) else None,
-    redoc_url="/redoc" if _server_cfg.get("enable_docs", True) else None,
+    docs_url="/docs" if _server_cfg.get("enable_docs", False) else None,
+    redoc_url="/redoc" if _server_cfg.get("enable_docs", False) else None,
 )
+app.add_middleware(RequestBodyLimit)
 
 # ---------------------------------------------------------------------------
 # CORS（默认严格模式；通过配置 server.cors_origins 指定允许来源）
@@ -72,7 +79,7 @@ app.add_middleware(
     allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["X-API-Key", "Content-Type", "Authorization"],
+    allow_headers=["X-API-Key", "X-Admin-Key", "X-User-Token", "Content-Type", "Authorization"],
     max_age=3600,
 )
 
@@ -106,13 +113,8 @@ def _needs_api_key(path: str, api_key_cfg: str) -> bool:
 # ---------------------------------------------------------------------------
 # API 路径 → 标签映射（用于 metrics 分组；避免 high-cardinality 标签）
 # ---------------------------------------------------------------------------
-_ROUTE_LABEL_CACHE: dict[str, str] = {}
-
-
+@lru_cache(maxsize=256)
 def _route_label(path: str) -> str:
-    cached = _ROUTE_LABEL_CACHE.get(path)
-    if cached is not None:
-        return cached
     if path == "/" or path.startswith("/static/") or path == "/favicon.ico":
         result = "static"
     elif path in ("/health", "/healthz", "/ready"):
@@ -157,20 +159,25 @@ def _route_label(path: str) -> str:
         result = "/api/bind"
     elif path.startswith("/api/token/"):
         result = "/api/token"
+    elif path.startswith("/api/batch-rating/tasks/"):
+        result = "/api/batch-rating/tasks"
+    elif path.startswith("/api/batch-rating/"):
+        result = "/api/batch-rating"
+    elif path.startswith("/api/task/"):
+        result = "/api/task"
     else:
         result = "unknown"
-    _ROUTE_LABEL_CACHE[path] = result
     return result
 
 
 def _client_ip(request: Request) -> str:
-    xff = request.headers.get("x-forwarded-for") or ""
-    if xff:
-        first = xff.split(",", 1)[0].strip()
-        if first:
-            return first
-    addr = request.client
-    return addr.host if addr else "unknown"
+    return client_ip(request)
+
+
+LEGACY_HEAVY_PATHS = {"/api/profile", "/api/matches", "/api/match-detail", "/api/analyze", "/api/rank-history",
+                      "/api/quick-strength", "/api/competitive-strength", "/api/summary", "/api/sameplay", "/api/sameplay-detail",
+                      "/api/hero-pick-rate", "/api/hero-perk", "/api/hero-wiki", "/api/shop", "/api/patch-notes", "/api/search-player",
+                      "/api/bind", "/api/refresh-token"}
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +186,9 @@ def _client_ip(request: Request) -> str:
 @app.middleware("http")
 async def _security_and_metrics_middleware(request: Request, call_next):
     start = time.perf_counter()
+    request.state.request_id = uuid.uuid4().hex
+    browser_id = request.cookies.get("ow_browser_id", "")
+    request.state.browser_id = browser_id if len(browser_id) == 32 and all(c in "0123456789abcdef" for c in browser_id) else uuid.uuid4().hex
     state = getattr(request.app.state, "ow_app", None)
     api_key_cfg = ""
     if state is not None:
@@ -189,6 +199,17 @@ async def _security_and_metrics_middleware(request: Request, call_next):
     if len(path) > 1 and path.endswith("/"):
         path = path.rstrip("/") or "/"
     route_label = _route_label(path)
+    is_progress = request.method == "GET" and (path.startswith("/api/batch-rating/tasks/") or path.startswith("/api/task/") or path == "/api/query-status")
+    try:
+        if path == "/metrics" and not is_local(request):
+            raise HTTPException(403, "监控接口仅允许本机访问")
+        if route_label in {"docs", "openapi"} and not is_local(request):
+            require_admin(request)
+        if is_progress:
+            admit_heavy(request, "progress")
+    except HTTPException as exc:
+        REGISTRY.counter("http_requests_total", {"method": request.method, "route": route_label, "status": str(exc.status_code)}).inc()
+        return JSONResponse(status_code=exc.status_code, content={"success": False, "error": exc.detail}, headers=exc.headers)
 
     # ------ 速率限制（Nginx 层为首选；本层作为兜底） ------
     rate_bypass = False
@@ -206,17 +227,18 @@ async def _security_and_metrics_middleware(request: Request, call_next):
     except Exception:
         rate_bypass = True
 
-    if not rate_bypass and route_label not in ("static", "health", "metrics", "docs", "openapi"):
+    if not rate_bypass and not is_progress and route_label not in ("static", "health", "metrics", "docs", "openapi"):
         provided_key = request.headers.get("x-api-key") or ""
         ip = _client_ip(request)
         # user_token 从查询参数或 headers 取
         user_token = ""
         try:
             q = request.query_params
-            user_token = (q.get("token") or "").strip()
+            user_token = (request.headers.get("x-user-token") or q.get("token") or "").strip()
         except Exception:
             pass
-        ok, rule, retry_after = LIMITERS.check(ip=ip, api_key=provided_key.strip(), user_token=user_token)
+        valid_key = provided_key.strip() if api_key_cfg and secrets.compare_digest(provided_key.strip(), api_key_cfg) else ""
+        ok, rule, retry_after = LIMITERS.check(ip=ip, api_key=valid_key, user_token=user_token)
         if not ok:
             REGISTRY.counter(
                 "http_requests_total", {"method": request.method, "route": route_label, "status": "429"}
@@ -259,7 +281,14 @@ async def _security_and_metrics_middleware(request: Request, call_next):
     # ------ 活跃请求 + 执行 ------
     REGISTRY.gauge("http_requests_in_flight", {"method": request.method}).inc()
     try:
-        response = await call_next(request)
+        if state is not None and request.url.path == path and path in LEGACY_HEAVY_PATHS | {"/api/task/create", "/api/stream"}:
+            admit_heavy(request)
+        if state is not None and request.url.path == path and path in LEGACY_HEAVY_PATHS:
+            response = await work_queue(state).call(lambda: call_next(request))
+        else:
+            response = await call_next(request)
+    except HTTPException as exc:
+        response = JSONResponse(status_code=exc.status_code, content={"success": False, "error": exc.detail}, headers=exc.headers)
     except Exception as exc:
         # 通用兜底异常
         status = 500
@@ -272,15 +301,10 @@ async def _security_and_metrics_middleware(request: Request, call_next):
         REGISTRY.histogram("http_request_duration_seconds", {"route": route_label}).observe(
             time.perf_counter() - start
         )
-        logger.exception("请求处理异常: %s", exc)
+        logger.exception("Request %s failed", request.state.request_id)
         return JSONResponse(
             status_code=500,
-            content={
-                "success": False,
-                "error": "服务内部错误：{0}".format(type(exc).__name__),
-                "status_code": 500,
-                "details": {"message": str(exc)},
-            },
+            content=internal_error(request.state.request_id),
         )
     finally:
         REGISTRY.gauge("http_requests_in_flight", {"method": request.method}).dec()
@@ -298,6 +322,14 @@ async def _security_and_metrics_middleware(request: Request, call_next):
     REGISTRY.histogram("http_request_duration_seconds", {"route": route_label}).observe(
         time.perf_counter() - start
     )
+    response.headers["X-Request-ID"] = request.state.request_id
+    if path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    elif path.startswith("/static/game-icons/"):
+        response.headers["Cache-Control"] = "public, max-age=86400"
+    if browser_id != request.state.browser_id and path.startswith("/api/"):
+        response.set_cookie("ow_browser_id", request.state.browser_id, max_age=31_536_000, httponly=True,
+                            secure=request.url.scheme == "https", samesite="lax")
     return response
 
 
@@ -342,6 +374,8 @@ async def on_shutdown():
 # 基础端点
 # ---------------------------------------------------------------------------
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+# Windows MIME registries do not always know WebP; browsers must get an image type.
+mimetypes.add_type("image/webp", ".webp")
 
 
 @app.get("/static/batch_rating.html", include_in_schema=False)
@@ -400,8 +434,40 @@ async def ready(request: Request):
 
 @app.get("/metrics", include_in_schema=False, response_class=PlainTextResponse)
 async def metrics_endpoint(request: Request):
+    state = getattr(request.app.state, "ow_app", None)
+    if state is not None:
+        queue = work_queue(state)
+        for key, value in queue.status().items():
+            REGISTRY.gauge("ow_query_queue_" + key).set(value)
+        if state.batch_rating is not None:
+            REGISTRY.gauge("ow_upstream_circuits_open").set(len(state.batch_rating.circuit.status()))
+    REGISTRY.counter("process_cpu_seconds_total").set_total(time.process_time())
+    REGISTRY.gauge("ow_data_disk_free_bytes").set(shutil.disk_usage(BASE_DIR / "data" if (BASE_DIR / "data").exists() else BASE_DIR).free)
+    try:
+        import resource
+        REGISTRY.gauge("process_memory_peak_bytes").set(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024))
+    except ImportError:
+        pass
     text = render_metrics_text()
     return Response(content=text, media_type="text/plain; version=0.0.4; charset=utf-8")
+
+
+@app.get("/api/query-status", include_in_schema=False)
+async def query_status(request: Request):
+    state = getattr(request.app.state, "ow_app", None)
+    status = work_queue(state or request.app.state).status()
+    if state is not None and state.batch_rating is not None:
+        status["upstream_cooldown"] = state.batch_rating.circuit.status()
+    return {"success": True, "data": status}
+
+
+@app.post("/api/privacy/clear-session", include_in_schema=False)
+async def clear_browser_session(request: Request):
+    response = JSONResponse({"success": True, "data": {"cleared": True}})
+    response.delete_cookie("ow_browser_id", httponly=True, samesite="lax", secure=request.url.scheme == "https")
+    # Prevent the outer middleware from immediately creating the cookie again.
+    request.state.browser_id = request.cookies.get("ow_browser_id", "")
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -409,6 +475,11 @@ async def metrics_endpoint(request: Request):
 # ---------------------------------------------------------------------------
 @app.exception_handler(HTTPException)
 async def _ow_http_exception_handler(request: Request, exc: HTTPException):
+    if exc.status_code == 500 or exc.status_code == 502:
+        error = internal_error(getattr(request.state, "request_id", None))
+        error["status_code"] = exc.status_code
+        logger.error("Request %s failed: %s", error["request_id"], exc.detail)
+        return JSONResponse(status_code=exc.status_code, content=error, headers=exc.headers)
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -416,7 +487,7 @@ async def _ow_http_exception_handler(request: Request, exc: HTTPException):
             "error": str(exc.detail) if exc.detail is not None else "请求失败",
             "status_code": exc.status_code,
             "details": getattr(exc, "details", {}),
-        },
+        }, headers=exc.headers,
     )
 
 
@@ -425,12 +496,7 @@ async def _ow_generic_exception_handler(request: Request, exc: Exception):
     logger.exception("请求处理异常: %s", exc)
     return JSONResponse(
         status_code=500,
-        content={
-            "success": False,
-            "error": "服务内部错误：{0}".format(type(exc).__name__),
-            "status_code": 500,
-            "details": {"message": str(exc)},
-        },
+        content=internal_error(getattr(request.state, "request_id", None)),
     )
 
 

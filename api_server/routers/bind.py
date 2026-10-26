@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from ..bindings import BindingRecord, generate_token, is_valid_token
 from ..response_utils import error_response
@@ -13,6 +13,7 @@ router = APIRouter(prefix="/api", tags=["bind"])
 
 @router.post("/bind")
 async def bind_account(
+    request: Request,
     token: Optional[str] = Query(
         None,
         description="用户 token；留空则由服务器自动生成新 token 返回。",
@@ -40,6 +41,7 @@ async def bind_account(
     if not tag or "#" not in tag:
         return error_response("BattleTag 格式不正确，正确格式：名字#数字", 400)
 
+    token = request.headers.get("x-user-token") or token
     provided_token = token.strip() if isinstance(token, str) and token.strip() else ""
     if not provided_token or not is_valid_token(provided_token):
         provided_token = generate_token()
@@ -68,7 +70,7 @@ async def bind_account(
                 icon_url = str(getattr(result, "icon_url", "") or "").strip()
         except Exception as exc:
             # 搜索失败不应阻止绑定——绑定本身只是本地操作；把错误信息写入响应体供前端展示。
-            search_error = f"{type(exc).__name__}: {exc}"
+            search_error = "暂未取得公开身份信息，可稍后重试"
     else:
         search_error = "bnet_search 模块未初始化（通常是由于 dashen_accounts 未配置）"
 
@@ -87,8 +89,6 @@ async def bind_account(
         "token": provided_token,
         "battletag": record.battletag,
         "display_name": record.display_name,
-        "bnet_id": record.bnet_id,
-        "customer_token": record.customer_token,
         "customer_token_resolved": resolved,
         "icon_url": record.icon_url,
         "message": "绑定完成" if resolved else "已绑定账号，但未能反查到 customer_token，稍后会自动重试。",
@@ -100,13 +100,14 @@ async def bind_account(
 
 @router.post("/unbind")
 async def unbind_account(
-    token: str = Query(..., description="用户 token"),
+    request: Request,
+    token: Optional[str] = Query(None, description="兼容旧调用；推荐 X-User-Token 请求头"),
     state=Depends(get_app_state),
 ):
     bm = _bindings_manager(state)
     if bm is None:
         raise HTTPException(status_code=503, detail="绑定系统未初始化。")
-    t = str(token or "").strip()
+    t = str(request.headers.get("x-user-token") or token or "").strip()
     if not t:
         return error_response("缺少 token 参数", 400)
     existed = bm.remove(t)
@@ -117,13 +118,14 @@ async def unbind_account(
 
 @router.get("/my-bind")
 async def my_bind(
-    token: str = Query(..., description="用户 token"),
+    request: Request,
+    token: Optional[str] = Query(None, description="兼容旧调用；推荐 X-User-Token 请求头"),
     state=Depends(get_app_state),
 ):
     bm = _bindings_manager(state)
     if bm is None:
         raise HTTPException(status_code=503, detail="绑定系统未初始化。")
-    t = str(token or "").strip()
+    t = str(request.headers.get("x-user-token") or token or "").strip()
     rec = bm.get(t)
     if rec is None:
         return error_response("当前 token 没有绑定账号", 404)
@@ -132,8 +134,6 @@ async def my_bind(
         "token": t,
         "battletag": rec.battletag,
         "display_name": rec.display_name,
-        "bnet_id": rec.bnet_id,
-        "customer_token": rec.customer_token,
         "customer_token_resolved": bool(rec.customer_token),
         "icon_url": rec.icon_url,
     }
@@ -141,7 +141,8 @@ async def my_bind(
 
 @router.post("/refresh-token")
 async def refresh_binding_token(
-    token: str = Query(..., description="用户 token"),
+    request: Request,
+    token: Optional[str] = Query(None, description="兼容旧调用；推荐 X-User-Token 请求头"),
     state=Depends(get_app_state),
 ):
     """重新为已绑定的账号调用 bnet_search 刷新 customer_token。
@@ -151,7 +152,7 @@ async def refresh_binding_token(
     bm = _bindings_manager(state)
     if bm is None:
         raise HTTPException(status_code=503, detail="绑定系统未初始化。")
-    t = str(token or "").strip()
+    t = str(request.headers.get("x-user-token") or token or "").strip()
     rec = bm.get(t)
     if rec is None:
         return error_response("当前 token 没有绑定账号，请先调用 POST /api/bind。", 404)
@@ -203,8 +204,6 @@ async def refresh_binding_token(
         "token": t,
         "battletag": updated.battletag,
         "display_name": updated.display_name,
-        "bnet_id": updated.bnet_id,
-        "customer_token": updated.customer_token,
         "customer_token_resolved": True,
         "icon_url": updated.icon_url,
         "message": "customer_token 已刷新，之后查询战绩时可直接使用该 token。",

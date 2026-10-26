@@ -86,7 +86,7 @@ class SuccessfulQueryIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.stack.enter_context(patch.object(task_db, '_TASK_DB_PATH', str(self.folder / 'tasks.sqlite3')))
         task_db.init_task_db()
         self.previous = getattr(app.state, 'ow_app', None)
-        self.state = AppState(config={'output': {'prefer_image_for_match': False}}, initialized=True)
+        self.state = AppState(config={'output': {'prefer_image_for_match': False}, 'rate_limit': {'enable_heavy_limits': False}}, initialized=True)
         self.state.api_client = object()
         self.state.match = SimpleNamespace(query_match_list=AsyncMock(return_value=SimpleNamespace(resolved_bnet=None, image=None, matches=[{'matchId': 'demo'}])))
         app.state.ow_app = self.state

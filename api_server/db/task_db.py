@@ -20,6 +20,8 @@ def _get_connection(timeout: float = 30.0) -> sqlite3.Connection:
     with _DB_CONNECTION_LOCK:
         Path(_TASK_DB_PATH).parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(_TASK_DB_PATH, timeout=timeout, check_same_thread=False)
+        conn.execute("PRAGMA max_page_count=16384")
+        conn.execute("PRAGMA secure_delete=ON")
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -63,7 +65,7 @@ def create_task(task_id: str, endpoint: str, params: Dict[str, Any]) -> None:
             (task_id, status, progress_pct, stage, created_at, endpoint, params)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (task_id, "pending", 0.0, "", time.time(), endpoint, json.dumps(params)),
+            (task_id, "pending", 0.0, "", time.time(), endpoint, json.dumps({k: v for k, v in params.items() if k not in {"token", "image_base64", "api_key", "customer_token"}})),
         )
         conn.commit()
     finally:

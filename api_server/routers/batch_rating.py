@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from pydantic import BaseModel, Field
 
 from ..batch_rating.ocr import recognize_image
 from ..batch_rating.scoring import scoring_rules
 from ..batch_rating.service import BatchRatingService, QueryFailure
+from ..security import admit_heavy
 from .utils import get_app_state, require_account_ready
 
 router = APIRouter(prefix="/api/batch-rating", tags=["batch-rating"])
@@ -30,17 +31,29 @@ def service(state=Depends(get_app_state)) -> BatchRatingService:
     return state.batch_rating
 
 
-async def _query(mode, body, response, state):
+async def _query(mode, body, response, state, request):
     require_account_ready(state)
     worker = state.batch_rating
     if worker is None:
         raise HTTPException(503, "批量评分尚未初始化")
     try:
+        if body.image_base64 and not body.battletags:
+            admit_heavy(request, "ocr")
         prepared = await worker.prepare(body.battletags, body.image_base64, full_match=body.full_match)
+        if not await worker.has_fresh_data(mode, prepared["battletags"]):
+            admit_heavy(request)
+        job = worker.start(mode, prepared)
         if body.wait:
-            return {"success": True, "data": await worker.query(mode, prepared)}
+            import asyncio
+            await asyncio.shield(worker.running[job["task_id"]])
+            finished = worker.get_job(job["task_id"])
+            if finished is None:
+                raise QueryFailure("此前战绩已过期，请重新发起查询")
+            if finished["status"] != "done":
+                raise QueryFailure(finished.get("error") or "查询未能完成")
+            return {"success": True, "data": finished["result"]}
         response.status_code = 202
-        return {"success": True, "data": worker.start(mode, prepared)}
+        return {"success": True, "data": job}
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     except QueryFailure as exc:
@@ -50,19 +63,22 @@ async def _query(mode, body, response, state):
 
 
 @router.post("/leisure", summary="图片/多人 BattleTag：最近12场休闲对局评分排序")
-async def leisure(body: RatingRequest, response: Response, state=Depends(get_app_state)):
-    return await _query("leisure", body, response, state)
+async def leisure(body: RatingRequest, response: Response, request: Request, state=Depends(get_app_state)):
+    return await _query("leisure", body, response, state, request)
 
 
 @router.post("/competitive", summary="图片/多人 BattleTag：最近12场竞技对局评分排序")
-async def competitive(body: RatingRequest, response: Response, state=Depends(get_app_state)):
-    return await _query("competitive", body, response, state)
+async def competitive(body: RatingRequest, response: Response, request: Request, state=Depends(get_app_state)):
+    return await _query("competitive", body, response, state, request)
 
 
 @router.post("/recognize", summary="本机中文OCR识别截图中的完整BattleTag")
-async def recognize(body: ImageRequest):
+async def recognize(body: ImageRequest, request: Request):
     try:
-        return {"success": True, "data": await recognize_image(body.image_base64)}
+        admit_heavy(request, "ocr")
+        state = getattr(request.app.state, "ow_app", None) or request.app.state
+        from ..work_queue import work_queue
+        return {"success": True, "data": await work_queue(state).call(lambda: recognize_image(body.image_base64))}
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     except RuntimeError as exc:

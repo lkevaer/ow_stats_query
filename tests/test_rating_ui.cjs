@@ -10,7 +10,7 @@ function ui(savedCookie=''){
   const element=id=>{
     if(!elements.has(id)){
       const classes=new Set(['hidden']);
-      elements.set(id,{value:'',dataset:{},style:{},classList:{toggle:(name,force)=>force?classes.add(name):classes.delete(name),remove:name=>classes.delete(name),contains:name=>classes.has(name)}});
+      elements.set(id,{value:'',dataset:{},style:{},classList:{toggle:(name,force)=>force?classes.add(name):classes.delete(name),add:name=>classes.add(name),remove:name=>classes.delete(name),contains:name=>classes.has(name)}});
     }
     return elements.get(id);
   };
@@ -18,6 +18,7 @@ function ui(savedCookie=''){
   let cookie=savedCookie;
   Object.defineProperty(document,'cookie',{get:()=>cookie,set:value=>{cookie=value.includes('Max-Age=0')?'':value.split(';')[0];}});
   const context=vm.createContext({document,location:{protocol:'https:',search:''},URLSearchParams,localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},fetch:async(url,options)=>{requests.push({url,options});return{ok:true,json:async()=>url==='/health'?{api_key_required:false}:{success:true,data:options?.method==='POST'?{task_id:'test'}:{status:'done',progress:100,stage:'完成',result:{mode:'competitive',mode_label:'竞技',players:[player],summary:{requested_players:1,complete_players:1,rated_matches:12}}}}};},setTimeout:()=>{}});
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../api_server/static/game_assets.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../api_server/static/rating_account.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../api_server/static/batch_rating.js'),'utf8'),context);
   return {context,element,listeners,requests,document};
@@ -25,6 +26,66 @@ function ui(savedCookie=''){
 const rank={known:true,label:'黄金3',icon:'https://example.com/gold.png',role_label:'输出'};
 const match={begin_ts:1792227400000,seconds:600,hero:'测试',role:'dps',role_label:'输出',map_name:'测试地图',metrics:{},stats:{},adjustments:[],warnings:[],rank,score:65,grade:'B',outcome_label:'胜',sample_weight:1,duration_weight:1};
 const player={battletag:'Example#1234',tier:'中等马',score:65,grade:'B',rated_matches:12,status:'complete',primary_role:'dps',matches:[match,match],errors:[],averages:{},latest_rank:rank};
+
+test('cache age and failed refresh are visible and escaped, without changing old reports',()=>{
+  const {context}=ui();
+  assert.equal(context.cacheNotice(player,true),'');
+  const cached={...player,data_cache:{source:'cache',fetched_at:1800000000}};
+  assert.match(context.cacheNotice(cached),/5分钟内缓存/);
+  assert.match(context.playerDetails(cached),/data-freshness/);
+  const stale={...cached,data_cache:{source:'stale_cache',fetched_at:1800000000,refresh_error:'<img src=x onerror=alert(1)>'}};
+  const html=context.playerDetails(stale);
+  assert.match(html,/刷新失败，使用此前战绩/);
+  assert.match(html,/旧数据最多保留24小时/);
+  assert.match(html,/&lt;img/);
+  assert.doesNotMatch(html,/<img src=x/);
+  assert.equal(context.cacheNotice({...cached,data_cache:{source:'cache',fetched_at:NaN}},true),'');
+});
+
+test('favorite ID controls add, select, deselect and remove while the query uses actual selected players',async()=>{
+  const view=ui();
+  view.element('favoriteInput').value='玩家甲#1234 玩家乙#5678';
+  view.element('favoriteForm').onsubmit({preventDefault(){}});
+  assert.match(view.element('favoriteList').innerHTML,/玩家甲#1234/);
+  const select=index=>view.element('favoriteList').onclick({target:{closest:selector=>selector==='[data-favorite-index]'?{dataset:{favoriteIndex:String(index)}}:null}});
+  select(0);select(1);
+  assert.equal((view.element('favoriteList').innerHTML.match(/aria-pressed="true"/g)||[]).length,2);
+  view.element('tags').value='玩家甲#1234 额外#8888';
+  await view.context.query('competitive');
+  assert.deepEqual(JSON.parse(view.requests.find(r=>r.options?.method==='POST').options.body).battletags,['玩家甲#1234','额外#8888','玩家乙#5678']);
+  select(0);
+  assert.equal((view.element('favoriteList').innerHTML.match(/aria-pressed="true"/g)||[]).length,1);
+  view.element('favoriteList').onclick({target:{closest:selector=>selector==='[data-remove-favorite]'?{dataset:{removeFavorite:'1'}}:null}});
+  assert.doesNotMatch(view.element('favoriteList').innerHTML,/玩家乙#5678/);
+  assert.match(view.element('favoriteCount').textContent,/已选 0/);
+});
+
+test('saved names are escaped and favorite selection does not leak into a full-match query',async()=>{
+  const view=ui();
+  view.element('favoriteInput').value='<script>#1234';
+  view.element('favoriteForm').onsubmit({preventDefault(){}});
+  assert.match(view.element('favoriteList').innerHTML,/&lt;script&gt;#1234/);
+  view.element('favoriteList').onclick({target:{closest:selector=>selector==='[data-favorite-index]'?{dataset:{favoriteIndex:'0'}}:null}});
+  await view.context.query('competitive',['当局#1234']);
+  const body=JSON.parse(view.requests.find(r=>r.options?.method==='POST').options.body);
+  assert.deepEqual(body.battletags,['当局#1234']);
+  assert.equal(body.full_match,true);
+});
+
+test('clear local records removes saved IDs, binding and visible report data',async()=>{
+  const view=ui();
+  view.element('favoriteInput').value='测试#1234';view.element('favoriteForm').onsubmit({preventDefault(){}});
+  view.element('bindTag').value='本人#5678';view.element('bindForm').onsubmit({preventDefault(){}});
+  view.context.render({mode:'competitive',mode_label:'竞技',scoring_version:'test-version',players:[player],summary:{requested_players:1,complete_players:1,rated_matches:12}});
+  assert.match(view.element('reportMeta').textContent,/test-version/);
+  await view.element('clearLocalData').onclick();
+  assert.equal(view.element('boundTag').textContent,'');
+  assert.equal(view.element('rankings').innerHTML,'');
+  assert.equal(view.element('details').innerHTML,'');
+  assert.doesNotMatch(view.element('favoriteList').innerHTML,/测试#1234/);
+  assert.equal(view.element('results').classList.contains('hidden'),true);
+  assert.ok(view.requests.some(request=>request.url==='/api/privacy/clear-session'));
+});
 
 test('child details are lazy, merge the target into ten players, and escape public names',()=>{
   const {context}=ui();
@@ -108,7 +169,7 @@ test('wins and losses use accessible green-up and red-down arrows',()=>{
 test('competitive overview and per-match tables include rank icons',()=>{
   const {context,element}=ui();
   context.render({mode:'competitive',mode_label:'竞技',summary:{requested_players:1,complete_players:1,rated_matches:12},players:[player]});
-  assert.match(element('rankings').innerHTML,/rank-icon.*gold\.png/);
+  assert.match(element('rankings').innerHTML,/rank-icon.*\/static\/game-icons\/ranks\/[a-f0-9]+\.webp/);
   assert.match(element('details').innerHTML,/本场记录段位/);
   assert.match(element('details').innerHTML,/黄金3/);
   assert.equal(element('rankHeader').classList.contains('hidden'),false);

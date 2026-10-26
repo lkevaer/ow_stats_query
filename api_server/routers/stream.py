@@ -12,6 +12,8 @@ from fastapi.responses import StreamingResponse
 
 from ..app_context import AppState
 from ..query_audit import record_successful_ids
+from ..work_queue import work_queue
+from ..security import internal_error
 from .utils import get_app_state, require_account_ready, resolve_target, ResolvedTarget
 
 logger = logging.getLogger("ow_api_server.stream")
@@ -607,7 +609,7 @@ async def _stream_handler(
     # 这里我们直接根据 params 构造一个 ResolvedTarget；如果没有 battletag，
     # 则 fallback 到 token 绑定信息，等同于普通 endpoint 的行为。
     async def _do_stream():
-        queue: asyncio.Queue[Optional[bytes]] = asyncio.Queue()
+        queue: asyncio.Queue[Optional[bytes]] = asyncio.Queue(maxsize=32)
 
         async def _send(chunk: bytes) -> None:
             logger.info("Stream: sending %d bytes", len(chunk))
@@ -651,24 +653,34 @@ async def _stream_handler(
                 logger.info("Stream: sending done event")
                 await _send(_sse_done(result))
             except HTTPException as exc:
-                await _send(_sse_error(str(exc.detail) or "查询失败", exc.status_code))
+                message = internal_error()["error"] if exc.status_code in {500, 502} else str(exc.detail)
+                await _send(_sse_error(message or "查询失败", exc.status_code))
             except Exception as exc:
                 logger.exception("流式查询异常: %s", exc)
-                await _send(_sse_error("查询失败：{0}".format(exc), 500))
+                error = internal_error()
+                await _send(_sse_error(error["error"] + "（请求编号：" + error["request_id"] + "）", 500))
             finally:
-                await queue.put(None)
+                if queue.full():
+                    queue.get_nowait()
+                queue.put_nowait(None)
 
-        runner_task = asyncio.create_task(_runner())
+        runner_task = work_queue(state).submit(_runner)
 
         async def _gen():
-            while True:
-                item = await queue.get()
-                if item is None:
-                    logger.info("Stream: gen() received None, exiting")
-                    break
-                logger.info("Stream: gen() yielding %d bytes", len(item))
-                yield item
-            await runner_task
+            try:
+                while True:
+                    item = await queue.get()
+                    if item is None:
+                        break
+                    yield item
+                try:
+                    await runner_task
+                except HTTPException as exc:
+                    yield _sse_error(str(exc.detail), exc.status_code)
+            finally:
+                if not runner_task.done():
+                    runner_task.cancel()
+                await asyncio.gather(runner_task, return_exceptions=True)
 
         return StreamingResponse(
             _gen(),

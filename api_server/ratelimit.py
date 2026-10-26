@@ -21,6 +21,7 @@ class SlidingWindowLimiter:
         self._window = max(0.1, float(window_seconds))
         self._buckets: Dict[str, Deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
+        self._last_cleanup = 0.0
 
     def allow(self, key: str) -> bool:
         now = time.monotonic()
@@ -38,6 +39,16 @@ class SlidingWindowLimiter:
         now = time.monotonic()
         cutoff = now - self._window
         with self._lock:
+            if now - self._last_cleanup >= self._window or len(self._buckets) >= 10_000:
+                for stored in list(self._buckets):
+                    bucket = self._buckets[stored]
+                    while bucket and bucket[0] <= cutoff:
+                        bucket.popleft()
+                    if not bucket:
+                        del self._buckets[stored]
+                self._last_cleanup = now
+            if key not in self._buckets and len(self._buckets) >= 10_000:
+                return False, self._window
             q = self._buckets[key]
             while q and q[0] < cutoff:
                 q.popleft()
@@ -70,16 +81,18 @@ class RateLimiters:
         self._by_api_key: Optional[SlidingWindowLimiter] = None
         self._by_user_token: Optional[SlidingWindowLimiter] = None
         self._lock = threading.Lock()
+        self._configuration = None
 
     def configure(self, *, ip_max: Optional[int] = None, api_key_max: Optional[int] = None,
                   user_token_max: Optional[int] = None, window_seconds: float = 60.0) -> None:
         with self._lock:
-            if ip_max is not None and ip_max > 0:
-                self._by_ip = SlidingWindowLimiter(ip_max, window_seconds)
-            if api_key_max is not None and api_key_max > 0:
-                self._by_api_key = SlidingWindowLimiter(api_key_max, window_seconds)
-            if user_token_max is not None and user_token_max > 0:
-                self._by_user_token = SlidingWindowLimiter(user_token_max, window_seconds)
+            configuration = (ip_max or 0, api_key_max or 0, user_token_max or 0, window_seconds)
+            if configuration == self._configuration:
+                return
+            self._by_ip = SlidingWindowLimiter(ip_max, window_seconds) if ip_max and ip_max > 0 else None
+            self._by_api_key = SlidingWindowLimiter(api_key_max, window_seconds) if api_key_max and api_key_max > 0 else None
+            self._by_user_token = SlidingWindowLimiter(user_token_max, window_seconds) if user_token_max and user_token_max > 0 else None
+            self._configuration = configuration
 
     def check(self, *, ip: str, api_key: str = "", user_token: str = "") -> tuple[bool, str, float]:
         """依次检查三层限流。返回 (ok, 被触发的规则名, retry_after 秒数)。

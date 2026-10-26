@@ -58,7 +58,9 @@ docker compose up -d --build
 
 上下等马只在本次查询名单内相对区分，不代表绝对水平；名单段位差距过大时没有比较意义。评分偏重最后一击与Fleta，Fleta仅表示个人最后一击占团队总数的两倍。普通胜率与综合KD小幅参考，持续高胜率和高KD有更明显加分。页面可展开完整文字评分参考，不展示算法系数。
 
-使用说明和接口见 [BATCH_RATING.md](BATCH_RATING.md)，服务启动后也可打开 `/docs`。批量评分任务暂存内存一小时，服务使用单进程运行。
+使用说明和接口见 [BATCH_RATING.md](BATCH_RATING.md)，需要API文档时可在本机设置 `OW_ENABLE_DOCS=1` 后打开 `/docs`。同一战网ID、同一模式的原始战绩在5分钟内复用，之后重新获取；刷新失败保留并标注未满24小时的旧数据，达到24小时后不再使用并自动清理。报告编号独立生成，内存保留一小时，落盘报告最多保留24小时。服务使用单进程运行。
+
+搜索框旁可保存、删除和多选常用ID；选中名单与输入内容、本人账号合并去重后查询。记录仅存当前浏览器本地。英雄、地图和段位图标已随代码本地化，包含分类占位图；韩服页面共用英雄头像，不依赖玩家浏览器访问外部CDN。维护资源使用 `python scripts/sync_game_assets.py`。
 
 ```sh
 python -m unittest discover -s tests -v
@@ -66,9 +68,12 @@ node --check api_server/static/batch_rating.js
 node --test tests/test_ocr_ui.cjs
 node --test tests/test_rating_ui.cjs
 node --test tests/test_rating_account.cjs
+node --test tests/test_game_assets.cjs
 ```
 
 GitHub Actions 会检查评分与查询逻辑，并构建、启动 Docker 镜像。GitHub 仓库存放完整代码；运行查询服务需要 Python 或 Docker，GitHub Pages 无法运行此后端。
+
+公开使用的限流、统一队列、管理权限、旧缓存降级、资源预算和部署验收见 [PUBLIC_OPERATIONS.md](PUBLIC_OPERATIONS.md)。API文档默认关闭；完成的旧版本报告显示当时的评分版本，重新查询使用当前算法。
 
 QQ群机器人需求见 [BOT_BACKLOG.md](BOT_BACKLOG.md)，绑定自己、自动凑齐队伍与默认查询本人将在部署机器人时实现。
 
@@ -87,6 +92,8 @@ docker compose cp ow-stats:/app/data/successful_battletags.txt ./successful_batt
 ```
 
 可选环境变量 `OW_QUERY_ID_LOG_FILE` 用于指定其他日志路径；容器部署时应选择持久化目录。该文件及清理临时文件已加入Git和Docker忽略规则，也不通过网页提供下载。
+
+`OW_QUERY_ID_LOG_ENABLED=0` 可以关闭成功ID记录。此日志与原始战绩缓存分开：日志按容量轮转，原始战绩及报告最多保留24小时。
 
 `.env`、账号配置、绑定信息、战绩数据库、日志、截图和查询报告均不应提交。运行缓存会自动创建，无需从他人电脑复制。
 

@@ -26,6 +26,9 @@ class _Counter:
     def value(self) -> float:
         return self._value
 
+    def set_total(self, value: float) -> None:
+        self._value = max(0.0, float(value))
+
     def labels(self) -> Dict[str, str]:
         return self._labels
 
@@ -206,6 +209,22 @@ REGISTRY.register_counter("cache_lookup_total", "Total cache lookups (hits + mis
 REGISTRY.register_counter("cache_hit_total", "Total cache hits by cache name")
 REGISTRY.register_gauge("cache_entries", "Current number of entries per cache")
 REGISTRY.register_counter("rate_limit_throttled_total", "Total requests throttled by per-IP / per-key rate limit")
+for name, description in {
+    "ow_query_queue_active": "Currently executing expensive queries",
+    "ow_query_queue_queued": "Expensive queries waiting for execution",
+    "ow_query_queue_capacity": "Maximum total running and queued queries",
+    "ow_upstream_circuits_open": "Number of temporarily unavailable upstream operations",
+    "ow_data_disk_free_bytes": "Available bytes on the runtime data filesystem",
+    "process_memory_peak_bytes": "Peak resident process memory where supported",
+}.items():
+    REGISTRY.register_gauge(name, description)
+for name, description in {
+    "process_cpu_seconds_total": "Cumulative CPU time used by this process",
+    "ow_rating_player_cache_total": "Raw player cache hits, misses and coalesced requests",
+    "ow_match_detail_cache_total": "Shared history cache hits, misses and coalesced requests",
+    "ow_upstream_requests_total": "Upstream request outcomes and requests blocked by a circuit",
+}.items():
+    REGISTRY.register_counter(name, description)
 
 
 def render_metrics_text() -> str:
@@ -218,8 +237,8 @@ def render_metrics_text() -> str:
             hits = int(data.get("hits", 0))
             misses = int(data.get("misses", 0))
             REGISTRY.gauge("cache_entries", {"cache": cache_name}).set(int(data.get("entries", 0)))
-            REGISTRY.counter("cache_hit_total", {"cache": cache_name}).inc(hits)
-            REGISTRY.counter("cache_lookup_total", {"cache": cache_name}).inc(hits + misses)
+            REGISTRY.counter("cache_hit_total", {"cache": cache_name}).set_total(hits)
+            REGISTRY.counter("cache_lookup_total", {"cache": cache_name}).set_total(hits + misses)
     except Exception:
         pass
 

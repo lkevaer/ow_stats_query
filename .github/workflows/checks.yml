@@ -15,7 +15,7 @@ jobs:
       - run: node --check api_server/static/batch_rating.js
       - run: node --check api_server/static/rating_account.js
       - run: node --check api_server/static/batch_rating_ocr.js
-      - run: node --test tests/test_ocr_ui.cjs tests/test_rating_ui.cjs tests/test_rating_account.cjs
+      - run: node --test tests/test_ocr_ui.cjs tests/test_rating_ui.cjs tests/test_rating_account.cjs tests/test_game_assets.cjs
   container:
     runs-on: ubuntu-latest
     steps:

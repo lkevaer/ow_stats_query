@@ -2,6 +2,7 @@
 let currentReport = null, polling = false, querying = false;
 const $ = id => document.getElementById(id);
 let selfBinding = RatingAccount.read(document.cookie);
+let favoriteState = RatingAccount.readFavorites(localStorage);
 function showBinding() {
   const bound = Boolean(selfBinding.tag);
   $('bindForm').classList.toggle('hidden', bound);
@@ -9,6 +10,7 @@ function showBinding() {
   $('boundTag').textContent = selfBinding.tag;
   $('autoJoin').checked = selfBinding.autoJoin;
   $('autoJoin').disabled = !bound;
+  updateFavoriteSelection();
 }
 $('bindForm').onsubmit = event => {
   event.preventDefault();
@@ -39,6 +41,60 @@ $('autoJoin').onchange = () => {
 };
 showBinding();
 const escapeHtml = x => String(x ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function updateFavoriteSelection(){
+  let count=0,invalid=false;
+  try{count=RatingAccount.parseTags($('tags').value+'\n'+favoriteState.selected.join('\n')+(selfBinding.tag&&selfBinding.autoJoin?'\n'+selfBinding.tag:'')).length;}catch(_){invalid=true;}
+  $('favoriteCount').textContent='已选 '+favoriteState.selected.length+' / 10';
+  $('queryCount').textContent=invalid?'请检查完整ID':'本次查询 '+count+' / 10 人';
+  $('queryCount').classList.toggle('over-limit',count>10||invalid);
+  $('clearFavoriteSelection').disabled=!favoriteState.selected.length;
+  if(!querying&&!polling&&!currentReport){
+    status(invalid?'请检查完整战网ID。':count>10?'合并去重后最多查询10人，请减少输入或取消部分选择。':count?'已准备查询 '+count+' 位玩家，选择竞技或休闲即可开始。':'输入战网ID、选择常用ID，或上传账号截图。',invalid||count>10);
+  }
+}
+function renderFavorites(){
+  $('favoriteList').innerHTML=favoriteState.tags.length?favoriteState.tags.map((tag,index)=>{
+    const selected=favoriteState.selected.includes(tag);
+    return '<div class="favorite-entry'+(selected?' selected':'')+'"><button type="button" class="favorite-tag" data-favorite-index="'+index+'" aria-pressed="'+selected+'" title="'+escapeHtml(tag)+'"><span class="favorite-check" aria-hidden="true">'+(selected?'✓':'+')+'</span><span class="favorite-name">'+escapeHtml(tag)+'</span></button><button type="button" class="favorite-remove" data-remove-favorite="'+index+'" aria-label="删除 '+escapeHtml(tag)+'" title="从常用ID删除">×</button></div>';
+  }).join(''):'<p class="favorites-empty">把经常查询的玩家留在这里。<br>点击标签，即可选择或取消。</p>';
+  updateFavoriteSelection();
+}
+function persistFavorites(message){
+  try{favoriteState=RatingAccount.saveFavorites(localStorage,favoriteState);$('favoriteMessage').textContent=message;}
+  catch(_){$('favoriteMessage').textContent='浏览器未能保存，当前选择仅本次有效。';}
+  renderFavorites();
+}
+$('favoriteForm').onsubmit=event=>{
+  event.preventDefault();
+  try{favoriteState=RatingAccount.addFavorites(favoriteState,$('favoriteInput').value);$('favoriteInput').value='';persistFavorites('已保存，点击ID标签选择要查询的玩家。');}
+  catch(error){$('favoriteMessage').textContent=error.message;}
+};
+$('saveInputFavorites').onclick=()=>{
+  try{favoriteState=RatingAccount.addFavorites(favoriteState,$('tags').value);persistFavorites('输入名单已保存到常用ID。');}
+  catch(error){$('favoriteMessage').textContent=error.message;}
+};
+$('favoriteList').onclick=event=>{
+  const remove=event.target.closest?.('[data-remove-favorite]'),select=event.target.closest?.('[data-favorite-index]');
+  try{
+    if(remove){favoriteState=RatingAccount.removeFavorite(favoriteState,favoriteState.tags[Number(remove.dataset.removeFavorite)]);persistFavorites('已删除该常用ID。');}
+    else if(select){favoriteState=RatingAccount.toggleFavorite(favoriteState,favoriteState.tags[Number(select.dataset.favoriteIndex)]);persistFavorites('选中的ID会与输入名单合并去重后查询。');}
+  }catch(error){$('favoriteMessage').textContent=error.message;}
+};
+$('clearFavoriteSelection').onclick=()=>{favoriteState={...favoriteState,selected:[]};persistFavorites('已取消选择，保存的ID仍保留。');};
+$('tags').oninput=updateFavoriteSelection;
+renderFavorites();
+$('clearLocalData').onclick=async()=>{
+  if(querying)return;
+  let cleared=true;
+  try{localStorage.removeItem(RatingAccount.FAVORITES_KEY);localStorage.removeItem('ow_batch_rating_task');}catch(_){cleared=false;}
+  document.cookie=RatingAccount.clearCookie;selfBinding=RatingAccount.read(document.cookie);
+  favoriteState={tags:[],selected:[]};$('tags').value='';$('bindTag').value='';$('favoriteInput').value='';
+  currentReport=null;polling=false;$('results').classList.add('hidden');
+  $('rankings').innerHTML='';$('details').innerHTML='';$('horseSummary').value='';$('summary').textContent='';$('reportMeta').textContent='';
+  showBinding();renderFavorites();globalThis.history?.replaceState(null,'','/');
+  try{await api('/api/privacy/clear-session',{method:'POST'});status(cleared&&!selfBinding.tag?'已清除本浏览器的绑定、常用ID、选择和报告记录。':'当前页面已清空，浏览器未允许删除部分保存内容，请在浏览器设置中清除本站数据。');}
+  catch(_){status('本地记录已清除。浏览器标识未能重置，可在浏览器中清除本站数据。');}
+};
 const roleNames = {tank:'坦克 T',dps:'输出 C',support:'辅助 N'};
 const metricNames = {damage:'伤害',final_blows:'最后一击',survival:'生存',eliminations:'击杀',healing:'治疗',assists:'助攻',mitigation:'承伤',final_blow_share:'最后一击占比'};
 const supportDeathExplanation='新查询中的“辅助阵亡偏多”是独立额外扣分：略多于队友时温和递增，普通负荷通常不超过10分；只有阵亡率、队内差距、倍数和实际次数都明显突出时，才逐步接近15分的展示上限。15分仅限制这项额外扣分，生存基础贡献仍另计；Fleta达到50%的豁免保留。';
@@ -115,7 +171,7 @@ globalThis.addEventListener?.('resize',hideMetricHint);
 function status(text, error=false) { $('status').textContent=text; $('status').className='status'+(error?' error':''); }
 function busy(value) {
   querying=value;
-  for (const id of ['leisure','competitive','imageInput','recognizeFull']) if($(id)) $(id).disabled=value;
+  for (const id of ['leisure','competitive','imageInput','recognizeFull','clearLocalData']) if($(id)) $(id).disabled=value;
   $('details').querySelectorAll?.('.query-match').forEach(button=>{button.disabled=value||button.dataset.complete!=='true';});
   if($('recognizeCrop')) $('recognizeCrop').disabled=value||$('recognizeCrop').dataset.ready!=='true';
   if($('cropStage')) $('cropStage').style.pointerEvents=value?'none':'';
@@ -131,8 +187,8 @@ async function poll(id, fromLink=false) {
   polling=true;
   while (polling) {
     const job=await api('/api/batch-rating/tasks/'+encodeURIComponent(id));
-    $('progress').value=job.progress; status(job.stage+' · '+job.completed_players+'/'+job.total_players+' 位玩家');
-    if (job.status==='done') { polling=false;localStorage.removeItem('ow_batch_rating_task');render(job.result);status(fromLink?'已载入本次查询的缓存结果，可展开查看每场详情（缓存保留24小时）。':'查询完成。');return; }
+    $('progress').value=job.progress; status((job.status==='queued'&&job.queue?'排队中 · 当前运行 '+job.queue.active+' 批，等待 '+job.queue.queued+' 批':job.stage)+' · '+job.completed_players+'/'+job.total_players+' 位玩家');
+    if (job.status==='done') { polling=false;localStorage.removeItem('ow_batch_rating_task');render(job.result);status(job.report_persisted===false?'查询已完成，报告暂未保存到磁盘，请现在导出；重启后链接可能不可用。':fromLink?'已载入本次报告，可展开查看每场详情（最多保留24小时）。':'查询完成。');return; }
     if (job.status==='error') { localStorage.removeItem('ow_batch_rating_task');throw new Error(job.error||'查询失败'); }
     await new Promise(resolve=>setTimeout(resolve,2000));
   }
@@ -143,7 +199,7 @@ async function query(mode, matchTags=null) {
   try {
     selfBinding = RatingAccount.read(document.cookie);
     showBinding();
-    tags = matchTags===null?RatingAccount.roster($('tags').value,selfBinding):RatingAccount.parseTags(matchTags.join('\n'));
+    tags = matchTags===null?RatingAccount.roster($('tags').value,selfBinding,favoriteState.selected):RatingAccount.parseTags(matchTags.join('\n'));
     if(matchTags!==null&&(!tags.length||tags.length>12))throw new Error('当局名单无效，未开始查询。');
   } catch (error) { status(error.message,true);return; }
   busy(true);$('progress').classList.remove('hidden');$('progress').value=0;status('正在创建'+(mode==='leisure'?'休闲':'竞技')+'查询…');
@@ -170,7 +226,8 @@ function gradeBadge(player) { return '<span class="grade-letter">'+escapeHtml(sc
 function scoreMarkup(row,large=false) { return '<span class="rating-score '+gradeTone(scoreGrade(row))+(large?' large':'')+'"><strong>'+metricValue(row,'score',number(row.score,2),'评分')+'</strong>'+gradeBadge(row)+'</span>'+(row.is_smurf?' <span class="pill smurf" title="近12场至少7场Fleta严格大于65%">SMURF</span>':''); }
 function hotBadge(player) { return player.hot_streak?'<span class="hot-badge" title="完整近12场至少10胜，已提高胜率加分权重">手感火热</span>':''; }
 function asset(url,name,kind) {
-  const image=typeof url==='string'&&url.startsWith('https://')?'<img class="'+kind+'" src="'+escapeHtml(url)+'" alt="'+escapeHtml(name)+'" loading="lazy" referrerpolicy="no-referrer" onerror="this.hidden=true">':'';
+  const local=GameAssets.url(kind,url,name);
+  const image=local?'<img class="'+kind+'" src="'+escapeHtml(local)+'" alt="'+escapeHtml(name)+'" loading="lazy" data-asset-kind="'+kind+'" referrerpolicy="no-referrer" onerror="GameAssets.failed(this)">':'';
   return '<span class="asset">'+image+'<span>'+escapeHtml(name)+'</span></span>';
 }
 function rankBadge(rank) {
@@ -331,6 +388,17 @@ function toggleMatchDetails(button){
   button.setAttribute('aria-expanded',String(open));button.textContent=open?'收起对局详情':'展开对局详情';
   hideMetricHint();
 }
+function cacheNotice(player,detail=false) {
+  const cache=player.data_cache;
+  if(!cache||!Number.isFinite(cache.fetched_at)||!['upstream','cache','stale_cache'].includes(cache.source))return '';
+  const stale=cache.source==='stale_cache';
+  if(!detail&&!stale&&cache.source==='upstream')return '';
+  const stamp=new Date(cache.fetched_at*1000).toLocaleString('zh-CN',{hour12:false});
+  const clock=new Date(cache.fetched_at*1000).toLocaleTimeString('zh-CN',{hour12:false,hour:'2-digit',minute:'2-digit'});
+  const message=detail?(stale?'刷新失败，使用此前战绩 · '+stamp:cache.source==='cache'?'5分钟内缓存 · '+stamp:'战绩获取时间 · '+stamp):(stale?'刷新失败 · 缓存 '+clock:'5分钟内缓存 · '+clock);
+  const explanation=stale?(cache.refresh_error||'上游暂时不可用')+'；旧数据最多保留24小时，本次未延长有效期。':'同一ID、同一模式5分钟内复用战绩；之后重新获取，评分按当前规则计算。';
+  return '<'+(detail?'p':'span')+' class="'+(detail?'note':'cell-note')+' data-freshness'+(stale?' stale':'')+'" title="'+escapeHtml(stamp+' · '+explanation)+'">'+escapeHtml(message)+'</'+(detail?'p':'span')+'>';
+}
 function playerDetails(player,competitive=false,playerIndex=0) {
   const sample=escapeHtml(player.sample_note||'');
   const totals=player.averages?`<div class="detail-head"><span class="pill">${player.wins}胜${player.losses}负${player.draws}平 · 胜率${pct(player.win_rate)}</span>${hotBadge(player)}<span class="pill">Fleta>65%：${player.smurf_matches}/12场 · 7场为SMURF</span><span class="pill">KD ${kdLabel(player)} · KD≥7：${player.high_kd_matches??0}/12场</span><span class="pill">MVP ${player.mvp_matches??0} · CARRY ${player.carry_matches??0} · SVP ${player.svp_matches??0}</span><span class="weight-tags">${weightBadge('short','短局降权 '+(player.short_matches??0),'短局场数')}${weightBadge('long','长局增权 '+(player.long_matches??0),'长局场数')}${weightBadge('balanced','势均力敌 '+(player.balanced_matches??0),'双方最后一击接近的场数')}${weightBadge('stomp','碾压降权 '+(player.stomp_matches??0),'碾压局场数')}</span><span class="pill">权重合计${number(player.effective_matches)}</span><span class="muted">每10分钟：伤害 ${number(player.averages.damage_per10,0)} · 最后一击 ${number(player.averages.final_blows_per10)} · 阵亡 ${number(player.averages.survival_per10)} · 治疗 ${number(player.averages.healing_per10,0)}</span></div>`:'';
@@ -338,7 +406,7 @@ function playerDetails(player,competitive=false,playerIndex=0) {
   const scoring=player.match_average==null?'':`<p class="note">对局加权均分 ${number(player.match_average,2)}${corrections?' · 综合参考修正：'+corrections:''}</p>`;
   const rows=playerMatchesMarkup(player,competitive,playerIndex),sort=matchSorts.get(playerIndex);
   const errors=player.errors?.length?'<p class="note">未计分：'+player.errors.map(e=>escapeHtml(e.match_id)+' '+escapeHtml(e.error)).join('<br>')+'</p>':'';
-  return `<details><summary>${escapeHtml(player.battletag)} · ${scoreMarkup(player)} · ${player.rated_matches}场</summary><p class="note">${sample}</p>${totals}${scoring}<div class="scroll" tabindex="0" aria-label="玩家逐场详情表"><table class="metrics" data-sort-scope="matches" data-player-index="${playerIndex}"><thead><tr><th class="match-query-column">对局操作</th>${sortHeader('begin_ts',sort,'时间 / 时长 / 组队')}<th>英雄 / 位置</th>${competitive?'<th>本场记录段位 / 胜负</th>':''}<th>地图</th>${metricHeaders(sort)}<th>额外加减分</th></tr></thead><tbody>${rows}</tbody></table></div>${errors}</details>`;
+  return `<details><summary>${escapeHtml(player.battletag)} · ${scoreMarkup(player)} · ${player.rated_matches}场</summary><p class="note">${sample}</p>${cacheNotice(player,true)}${totals}${scoring}<div class="scroll" tabindex="0" aria-label="玩家逐场详情表"><table class="metrics" data-sort-scope="matches" data-player-index="${playerIndex}"><thead><tr><th class="match-query-column">对局操作</th>${sortHeader('begin_ts',sort,'时间 / 时长 / 组队')}<th>英雄 / 位置</th>${competitive?'<th>本场记录段位 / 胜负</th>':''}<th>地图</th>${metricHeaders(sort)}<th>额外加减分</th></tr></thead><tbody>${rows}</tbody></table></div>${errors}</details>`;
 }
 $('details').onclick=event=>{
   const sort=event.target.closest?.('.sort-metric');
@@ -358,6 +426,8 @@ $('details').onclick=event=>{
 function render(report) {
   hideMetricHint();matchSorts.clear();childSorts.clear();expandedMatches.clear();
   currentReport=report;$('horseSummary').value=report.summary_text||'';$('results').classList.remove('hidden');
+  const generated=report.generated_at&&Number.isFinite(Date.parse(report.generated_at))?new Date(report.generated_at).toLocaleString('zh-CN',{hour12:false}):'';
+  $('reportMeta').textContent=(report.scoring_version?'评分版本 '+report.scoring_version:'')+(generated?' · 报告生成于 '+generated:'')+' · 原始战绩更新时间见各玩家详情';
   const competitive=report.mode==='competitive';$('rankHeader').classList.toggle('hidden',!competitive);
   const comparable=report.players.filter(p=>p.score!=null).length>=2;
   $('comparisonRankHeader').classList.toggle('hidden',!comparable);
@@ -368,7 +438,7 @@ function render(report) {
   const summary=report.summary;
   $('summary').textContent=summary.requested_players+'位玩家 · '+summary.complete_players+'位满12场 · 共'+summary.rated_matches+'场有效对局';
   $('relativeNotice').textContent=report.relative_notice||'上下等马仅在本次查询名单内相对区分；相对评分不代表绝对水平。名单段位差距过大时，上下等马评级没有比较意义。';
-  $('rankings').innerHTML=report.players.map(p=>`<tr>${comparable?'<td>'+(p.rank??'—')+'</td>':''}<td class="tag">${escapeHtml(p.battletag).replace('#','<wbr>#')}${p.status==='partial'?'<span class="cell-note">样本不足，暂定</span>':''}</td>${comparable?'<td>'+tierPill(p)+'</td>':''}<td>${scoreMarkup(p,true)}</td><td>${p.rated_matches}/12<span class="cell-note">${metricValue(p,'confidence',pct(p.confidence),'样本完整度')}完整</span></td><td>${escapeHtml(roleNames[p.primary_role]||'—')}</td>${competitive?'<td>'+rankBadge(p.latest_rank)+(p.latest_rank?.known?'<span class="cell-note">'+escapeHtml(p.latest_rank.role_label)+' · 最近可见记录</span>':'')+'</td>':''}<td>${metricValue(p,'win_rate',pct(p.win_rate),'胜率')}<span class="cell-note">${p.wins??0}胜${p.losses??0}负${p.draws??0}平</span>${hotBadge(p)}</td><td>${metricValue(p,'kd',kdLabel(p),'KD')}<span class="cell-note">≥7：${p.high_kd_matches??0}/12场</span></td><td>${metricValue(p,'final_blow_share',pct(p.final_blow_share),'最后一击占比')}</td><td>${metricValue(p,'fleta',pct(p.fleta),'Fleta')}<span class="cell-note">>65%：${p.smurf_matches??0}场</span></td><td>${metricValue(p,'damage',number(p.averages?.damage_per10,0),'伤害/10分')}</td><td>${metricValue(p,'survival',number(p.averages?.survival_per10),'阵亡/10分')}</td><td>${weightBadge('stomp',(p.stomp_matches??0)+'场','碾压局降权场数')}</td></tr>`).join('');
+  $('rankings').innerHTML=report.players.map(p=>`<tr>${comparable?'<td>'+(p.rank??'—')+'</td>':''}<td class="tag">${escapeHtml(p.battletag).replace('#','<wbr>#')}${p.status==='partial'?'<span class="cell-note">样本不足，暂定</span>':''}${cacheNotice(p)}</td>${comparable?'<td>'+tierPill(p)+'</td>':''}<td>${scoreMarkup(p,true)}</td><td>${p.rated_matches}/12<span class="cell-note">${metricValue(p,'confidence',pct(p.confidence),'样本完整度')}完整</span></td><td>${escapeHtml(roleNames[p.primary_role]||'—')}</td>${competitive?'<td>'+rankBadge(p.latest_rank)+(p.latest_rank?.known?'<span class="cell-note">'+escapeHtml(p.latest_rank.role_label)+' · 最近可见记录</span>':'')+'</td>':''}<td>${metricValue(p,'win_rate',pct(p.win_rate),'胜率')}<span class="cell-note">${p.wins??0}胜${p.losses??0}负${p.draws??0}平</span>${hotBadge(p)}</td><td>${metricValue(p,'kd',kdLabel(p),'KD')}<span class="cell-note">≥7：${p.high_kd_matches??0}/12场</span></td><td>${metricValue(p,'final_blow_share',pct(p.final_blow_share),'最后一击占比')}</td><td>${metricValue(p,'fleta',pct(p.fleta),'Fleta')}<span class="cell-note">>65%：${p.smurf_matches??0}场</span></td><td>${metricValue(p,'damage',number(p.averages?.damage_per10,0),'伤害/10分')}</td><td>${metricValue(p,'survival',number(p.averages?.survival_per10),'阵亡/10分')}</td><td>${weightBadge('stomp',(p.stomp_matches??0)+'场','碾压局降权场数')}</td></tr>`).join('');
   $('details').innerHTML=report.players.map((player,index)=>playerDetails(player,competitive,index)).join('');
 }
 document.addEventListener('wheel', event => {

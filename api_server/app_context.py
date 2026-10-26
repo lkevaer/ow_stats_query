@@ -34,6 +34,7 @@ class AppState:
     batch_rating: Any = None
     hero_rates: Any = None
     ocr_warmup_task: Any = None
+    work_queue: Any = None
     initialized: bool = False
 
 
@@ -218,6 +219,7 @@ async def initialize_modules(cfg: Dict[str, Any]) -> AppState:
 
     from .batch_rating.service import BatchRatingService
     state.batch_rating = BatchRatingService(state)
+    await state.batch_rating.start_maintenance()
 
     from .hero_rates import HeroRatesCache
     state.hero_rates = HeroRatesCache()
@@ -227,11 +229,14 @@ async def initialize_modules(cfg: Dict[str, Any]) -> AppState:
     state.ocr_warmup_task = asyncio.create_task(prepare_ocr(), name="ow-ocr-warmup")
 
     state.initialized = True
+    await state.batch_rating._maintenance_once()
     logger.info("应用模块初始化完成")
     return state
 
 
 async def shutdown_modules(state: AppState) -> None:
+    if state.work_queue is not None:
+        await state.work_queue.close()
     if state.ocr_warmup_task is not None:
         state.ocr_warmup_task.cancel()
         await asyncio.gather(state.ocr_warmup_task, return_exceptions=True)

@@ -35,3 +35,39 @@ test('invalid input and effective rosters above ten are rejected without truncat
   assert.throws(()=>account.cookie({tag:'甲#1234 乙#1234',autoJoin:true}),/一个完整/);
   assert.throws(()=>account.roster(Array.from({length:10},(_,i)=>'队友'+i+'#1234').join('\n'),{tag:'本人#1234',autoJoin:true}),/最多10人/);
 });
+
+function storage(){const values=new Map();return{getItem:key=>values.get(key)||null,setItem:(key,value)=>values.set(key,value)};}
+test('favorite IDs save, reload, normalize, deduplicate and remain separate between browser stores',()=>{
+  const first=storage(),second=storage();
+  let state=account.addFavorites(account.readFavorites(first),'玩家甲＃12345 Player#54321 player#54321');
+  assert.deepEqual(state.tags,['玩家甲#12345','Player#54321']);
+  state=account.toggleFavorite(state,'玩家甲#12345');
+  account.saveFavorites(first,state);
+  assert.deepEqual(account.readFavorites(first),state);
+  assert.deepEqual(account.readFavorites(second),{tags:[],selected:[]});
+});
+test('favorite toggles, removal and multi-ID roster preserve manual entry and self deduplication',()=>{
+  let state=account.addFavorites({},'甲#1234 乙#1234 丙#1234');
+  state=account.toggleFavorite(state,'甲#1234');state=account.toggleFavorite(state,'乙#1234');
+  assert.deepEqual(account.roster('乙#1234 丁#1234',{tag:'甲#1234',autoJoin:true},state.selected),['乙#1234','丁#1234','甲#1234']);
+  state=account.toggleFavorite(state,'甲#1234');
+  assert.deepEqual(state.selected,['乙#1234']);
+  state=account.removeFavorite(state,'乙#1234');
+  assert.deepEqual(state,{tags:['甲#1234','丙#1234'],selected:[]});
+});
+test('favorites reject invalid additions, excessive storage and effective queries beyond ten',()=>{
+  const fifty=Array.from({length:50},(_,i)=>'玩家'+i+'#1234');
+  const state=account.addFavorites({},fifty.join('\n'));
+  assert.throws(()=>account.addFavorites(state,'额外#1234'),/50/);
+  assert.throws(()=>account.addFavorites(state,'不完整'),/完整/);
+  assert.throws(()=>account.addFavorites(state,''),/先输入/);
+  const selected={...state,selected:fifty.slice(0,10)};
+  assert.throws(()=>account.toggleFavorite(selected,fifty[10]),/10/);
+  assert.throws(()=>account.roster('额外#1234',{tag:'',autoJoin:false},selected.selected),/最多10人/);
+});
+test('corrupt saved data and storage failures are handled without accepting unlisted selections',()=>{
+  assert.deepEqual(account.readFavorites({getItem:()=>'{'}),{tags:[],selected:[]});
+  assert.deepEqual(account.readFavorites({getItem:()=>JSON.stringify({tags:['有效#1234','bad','有效#1234'],selected:['不存在#1234','有效#1234']})}),{tags:['有效#1234'],selected:['有效#1234']});
+  assert.deepEqual(account.readFavorites({getItem(){throw Error('blocked');}}),{tags:[],selected:[]});
+  assert.throws(()=>account.saveFavorites({setItem(){throw Error('quota');}},{tags:[],selected:[]}),/quota/);
+});

@@ -67,6 +67,8 @@ def resolve_target(
          若同时已有 token 绑定记录且其中 customer_token 可用，直接采用该 token 加速查询。
       2. 否则根据 user_token 必须已绑定某个玩家；从绑定记录读取 bnet_id/customer_token。
     """
+    if request is not None:
+        token = request.headers.get("x-user-token") or token
     explicit_tag = battletag.strip() if isinstance(battletag, str) and battletag.strip() else ""
 
     bm = _bindings_manager(state)

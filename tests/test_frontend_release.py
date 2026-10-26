@@ -54,7 +54,7 @@ class FrontendReleaseTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertIn("must-revalidate", response.headers["cache-control"])
             assets = Assets(response.text).assets
-            self.assertEqual(len(assets), 5)
+            self.assertEqual(len(assets), 6)
             for url, integrity in assets:
                 with self.subTest(url=url):
                     asset = client.get(url)

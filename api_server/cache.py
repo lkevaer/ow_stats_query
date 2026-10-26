@@ -84,12 +84,13 @@ class TTLCache(Generic[V]):
                 loop = asyncio.get_running_loop()
                 self._inflight[key] = loop.create_future()
                 fut = self._inflight[key]
+                fut.add_done_callback(lambda done: None if done.cancelled() else done.exception())
                 released_ok = False
 
         if released_ok:
             # 等待先行者完成
             try:
-                return await fut
+                return await asyncio.shield(fut)
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -100,12 +101,15 @@ class TTLCache(Generic[V]):
         # 3) 我是先行者：在锁外执行
         try:
             result = await coro_factory()
-        except Exception as exc:
+        except BaseException as exc:
             # 失败不缓存，但要通知等待者
             async with self._lock:
                 self._inflight.pop(key, None)
                 if not fut.done():
-                    fut.set_exception(exc)
+                    if isinstance(exc, asyncio.CancelledError):
+                        fut.cancel()
+                    else:
+                        fut.set_exception(exc)
             raise
 
         # 4) 写入缓存

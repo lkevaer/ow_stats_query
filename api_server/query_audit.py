@@ -19,6 +19,8 @@ logger = logging.getLogger("ow_api_server.query_audit")
 
 
 def _append_successful_ids(tags) -> None:
+    if os.getenv("OW_QUERY_ID_LOG_ENABLED", "1").strip().lower() in {"0", "false", "off", "no"}:
+        return
     valid, seen = [], set()
     for raw in tags:
         tag = unicodedata.normalize("NFKC", str(raw or "")).strip()

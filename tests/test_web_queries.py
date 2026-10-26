@@ -27,7 +27,7 @@ class WebQueryTests(unittest.TestCase):
         setting.start()
         self.addCleanup(setting.stop)
         self.previous_state = getattr(app.state, 'ow_app', None)
-        self.state = AppState(config={'output': {'prefer_image_for_match': False}}, initialized=True)
+        self.state = AppState(config={'output': {'prefer_image_for_match': False}, 'rate_limit': {'enable_heavy_limits': False}}, initialized=True)
         app.state.ow_app = self.state
         self.client = TestClient(app)
 

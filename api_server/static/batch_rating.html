@@ -20,6 +20,7 @@
 <meta itemprop="description" content="截图识别或输入战网ID，查看近12场 Fleta、MVP 等数据，对比队友相对评分。">
 <meta itemprop="image" content="https://lkevaer.xyz/static/share-cover.png">
 <link rel="stylesheet" href="/static/batch_rating.css">
+<script defer src="/static/game_assets.js"></script>
 <script defer src="/static/rating_account.js"></script>
 <script defer src="/static/batch_rating.js"></script>
 <script defer src="/static/ocr_crop.js"></script>
@@ -49,14 +50,16 @@
 <div><h2>1 · 上传或粘贴截图</h2><label class="drop" id="drop">选择图片、拖到这里，或按 Ctrl+V 粘贴截图<input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/bmp"><small>增强中文识别 · 本地处理 · 最大 8 MB</small></label>
 <div id="cropEditor" class="hidden"><p class="note">可在图上拖动框选账号列表，排除按钮、聊天等无关文字。</p><div id="cropStage" aria-label="拖动框选账号列表"><img id="preview" alt="原始账号截图，可拖动框选" draggable="false"><div id="cropSelection" class="hidden"></div></div><div class="actions"><button id="recognizeCrop" disabled data-ready="false">识别框选区域</button><button id="recognizeFull">重新识别整张图</button></div><div id="cropNote" class="note">尚未框选，当前识别整张图。</div></div>
 <div class="note" id="ocrNote" role="status"></div><div id="ocrWarnings" class="note"></div><div id="ocrReview"></div></div>
-<div><h2>2 · 检查账号列表</h2><label for="tags">每行一个完整 BattleTag，也可以直接输入</label><textarea id="tags" placeholder="昵称#12345&#10;另一位玩家#67890" spellcheck="false"></textarea><div class="note">手动名单合并本人后去重，最多10人。“查询当局”支持完整10人或12人名单，不额外加入局外账号。识别有误可直接修改。</div><div class="actions"><button id="leisure" class="primary">查询近12场休闲</button><button id="competitive" class="primary">查询近12场竞技</button></div></div>
+<div class="account-inputs"><div class="section-title"><h2>2 · 输入或选择玩家</h2><span id="queryCount" class="query-count">本次查询 0 / 10 人</span></div><div class="roster-workspace"><div class="manual-roster"><label for="tags">输入战网ID · 每行一人</label><textarea id="tags" placeholder="昵称#12345&#10;另一位玩家#67890&#10;&#10;也可以从常用ID中选择玩家" spellcheck="false"></textarea><button id="saveInputFavorites" class="save-input-favorites" type="button">＋ 保存输入名单</button><div class="note">输入名单、已选常用ID和自动加入的本人会合并去重，最多10人。</div></div><aside class="favorites-book" aria-label="常用ID记录本"><div class="favorites-heading"><h3>常用ID</h3><small>仅此浏览器</small></div><form id="favoriteForm" class="favorite-form"><label for="favoriteInput" class="visually-hidden">新增常用战网ID</label><input id="favoriteInput" type="text" maxlength="2000" spellcheck="false" autocomplete="off" placeholder="昵称#12345" required><button type="submit" aria-label="保存常用ID">＋</button></form><div id="favoriteList" class="favorite-list"></div><div class="favorites-toolbar"><span id="favoriteCount">已选 0 / 10</span><button id="clearFavoriteSelection" type="button" disabled>取消选择</button></div><p id="favoriteMessage" class="note" role="status">点击标签选择玩家，再点击下方查询。</p></aside></div><div class="actions query-actions"><button id="competitive" class="primary">查询近12场竞技</button><button id="leisure">查询近12场休闲</button></div><div class="note">“查询当局”使用完整10人或12人名单，不额外加入局外账号。识别有误可直接修改。</div></div>
 </div>
 <div id="status" class="status" role="status">请选择截图或输入账号。</div><progress id="progress" value="0" max="100" class="hidden"></progress>
 <div id="accessSection" class="note hidden"><label for="accessKey">此服务需要访问码</label> <input id="accessKey" type="password" autocomplete="off" placeholder="输入管理员提供的访问码"></div>
+<div class="query-utilities"><button id="clearLocalData" type="button">清除本地记录</button><a href="https://github.com/lkevaer/ow_stats_query/issues/new" target="_blank" rel="noopener noreferrer">反馈问题 ↗</a><span>反馈时请隐藏完整战网ID和查询链接</span></div>
 </section>
 <section id="results" class="panel hidden">
 <div class="section-title"><h2 id="resultTitle">查询结果</h2><button id="download">导出数据</button></div>
 <p id="summary"></p>
+<p id="reportMeta" class="note"></p>
 <p id="relativeNotice" class="notice">上下等马仅在本次查询名单内相对区分；相对评分不代表绝对水平。</p>
 <div class="scroll" tabindex="0" aria-label="队友评分汇总表"><table><thead><tr><th id="comparisonRankHeader">排名</th><th>玩家</th><th id="tierHeader">相对分档</th><th>综合分 / 等级</th><th>样本 / 完整度</th><th>主要位置</th><th id="rankHeader" class="hidden">最近记录段位</th><th>胜率 / 状态</th><th>KD / 高KD场次</th><th>最后一击占比</th><th>综合 Fleta</th><th>伤害/10分</th><th>阵亡/10分</th><th>碾压降权</th></tr></thead><tbody id="rankings"></tbody></table></div>
 <p id="comparisonPrompt" class="notice hidden">请输入更多ID以比较（至少两位有有效评分的玩家）。</p>
@@ -88,5 +91,6 @@
 <li>上下等马只在本次名单内相对排序，同分同档。只有一位有效评分玩家时不分上下等马，请输入更多ID以比较；无数据不评级。评分不按段位修正对局含金量，名单段位差距过大时没有比较意义。</li>
 </ul></details>
 </section>
+<details class="privacy-note"><summary>数据保存与隐私说明</summary><p>常用ID、选中状态和本人绑定保存在当前浏览器，可通过“清除本地记录”删除。服务还会使用一个随机浏览器标识辅助限制高频请求，不读取MAC地址。</p><p>原始战绩5分钟内复用，达到24小时后停止使用并清理。完整报告最多保留24小时；持有报告链接的人可以查看这份报告，分享前请核对其中的玩家ID。评分为自定义参考，样本完整度不表示评级正确率。</p><p>成功查询日志只记录战网ID和时间，不记录战绩、账号令牌或Cookie；按500 MB触发、保留最近400 MB的容量规则轮转，默认可能保留超过24小时。运营者可关闭此日志，服务端历史日志和绑定数据由运营者管理。游戏数据、名称与图像来自其原始服务及权利人。</p></details>
 <footer class="web-callout"><a href="https://lkevaer.xyz">https://lkevaer.xyz</a><div><strong>进入网页版查询当局所有人评分评级</strong><span>展开每场详情，查看并排序当局全员评分，或点击“查询当局”开始全员新一轮查询。完整评分规则见上方。</span></div></footer>
 </main></body></html>
