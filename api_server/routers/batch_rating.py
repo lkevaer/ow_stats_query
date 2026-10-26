@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from ..batch_rating.ocr import recognize_image
 from ..batch_rating.scoring import scoring_rules
 from ..batch_rating.service import BatchRatingService, QueryFailure
+from ..feature_flags import require_ocr_enabled
 from ..security import admit_heavy, request_owner, run_ocr
 from .utils import get_app_state, require_account_ready
 
@@ -32,6 +33,8 @@ def service(state=Depends(get_app_state)) -> BatchRatingService:
 
 
 async def _query(mode, body, response, state, request):
+    if body.image_base64 is not None:
+        require_ocr_enabled(state.config)
     require_account_ready(state)
     worker = state.batch_rating
     if worker is None:
@@ -78,7 +81,8 @@ async def competitive(body: RatingRequest, response: Response, request: Request,
 
 
 @router.post("/recognize", summary="本机中文OCR识别截图中的完整BattleTag")
-async def recognize(body: ImageRequest, request: Request):
+async def recognize(body: ImageRequest, request: Request, state=Depends(get_app_state)):
+    require_ocr_enabled(state.config)
     try:
         state = getattr(request.app.state, "ow_app", None) or request.app.state
         from ..work_queue import work_queue

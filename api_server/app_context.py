@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from .feature_flags import start_ocr_warmup
+
 logger = logging.getLogger("ow_api_server")
 
 
@@ -225,8 +227,7 @@ async def initialize_modules(cfg: Dict[str, Any]) -> AppState:
     state.hero_rates = HeroRatesCache()
     await state.hero_rates.start()
 
-    from .batch_rating.ocr import prepare_ocr
-    state.ocr_warmup_task = asyncio.create_task(prepare_ocr(), name="ow-ocr-warmup")
+    state.ocr_warmup_task = start_ocr_warmup(cfg)
 
     state.initialized = True
     await state.batch_rating._maintenance_once()

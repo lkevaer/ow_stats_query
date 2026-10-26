@@ -38,6 +38,14 @@ docker compose up -d --build
 
 ## 验证
 
+### 仅关闭某台服务器的 OCR
+
+在该服务器私有的 `.env` 中加入 `OW_OCR_ENABLED=0` 后重启服务。网页将只显示手动输入账号，识别接口及查询请求中的图片输入返回 503，启动时也不会预热 OCR 模型。已经加载的模型需要重启后才会释放。
+
+此开关默认开启；没有设置它的本地项目继续使用完整 OCR。也可以在 YAML 中设置 `features.ocr_enabled: false`，环境变量优先。不要把服务器的 `.env` 或账号凭据提交到仓库。
+
+### 常规检查
+
 ```sh
 docker compose ps
 curl -fsS http://127.0.0.1:41888/ready

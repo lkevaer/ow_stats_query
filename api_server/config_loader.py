@@ -60,6 +60,9 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Dict[str, Any]:
     raw["bindings_file"] = _env_override(raw["bindings_file"], "OW_BINDINGS_FILE")
 
     # —— 环境变量覆盖 ——
+    features = raw["features"]
+    features["ocr_enabled"] = _env_override(bool(features.get("ocr_enabled", True)), "OW_OCR_ENABLED")
+
     # server
     server = raw["server"]
     server["host"] = _env_override(server.get("host", "127.0.0.1"), "OW_SERVER_HOST")
