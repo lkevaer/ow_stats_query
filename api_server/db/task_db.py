@@ -56,6 +56,18 @@ def init_task_db() -> None:
             conn.close()
 
 
+def recover_interrupted_tasks() -> int:
+    """Called once at process startup, never during normal DB connections."""
+    conn = _get_connection()
+    try:
+        with conn:
+            return conn.execute(f"""UPDATE {_TASK_TABLE} SET status='error',
+                stage='已中断', error='服务重启中断了查询，请重新提交', error_code=503,
+                completed_at=? WHERE status IN ('pending','running')""", (time.time(),)).rowcount
+    finally:
+        conn.close()
+
+
 def create_task(task_id: str, endpoint: str, params: Dict[str, Any]) -> None:
     conn = _get_connection()
     try:

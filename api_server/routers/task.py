@@ -127,6 +127,17 @@ async def create_task(request: Request, body: Dict[str, Any] = Body(...)):
     except Exception:
         task.cancel()
         raise
+    handles = getattr(state, "legacy_tasks", None)
+    if handles is None:
+        handles = state.legacy_tasks = {}
+    handles[task_id] = task
+    def finished(done):
+        handles.pop(task_id, None)
+        if done.cancelled():
+            update_task_error(task_id, "查询已取消", 499)
+        elif done.exception() is not None:
+            update_task_error(task_id, "查询等待超时，请稍后重试", 504)
+    task.add_done_callback(finished)
 
     return {
         "success": True,
@@ -194,7 +205,25 @@ async def list_tasks(request: Request):
 
 
 @router.delete("/{task_id}")
-async def delete_task(task_id: str, _=Depends(require_admin)):
+async def delete_task(task_id: str, request: Request, _=Depends(require_admin)):
+    state = getattr(request.app.state, "ow_app", None)
+    handle = (getattr(state, "legacy_tasks", None) or {}).get(task_id)
+    if handle is not None:
+        handle.cancel()
+        await asyncio.gather(handle, return_exceptions=True)
     if db_delete_task(task_id):
         return {"success": True, "message": "任务已删除"}
     raise HTTPException(status_code=404, detail="任务不存在")
+
+
+@router.post("/{task_id}/cancel")
+async def cancel_task(task_id: str, request: Request, _=Depends(require_admin)):
+    state = getattr(request.app.state, "ow_app", None)
+    handle = (getattr(state, "legacy_tasks", None) or {}).get(task_id)
+    if handle is None:
+        if db_get_task(task_id) is None:
+            raise HTTPException(404, "任务不存在")
+        return {"success": True, "message": "任务已结束"}
+    handle.cancel()
+    await asyncio.gather(handle, return_exceptions=True)
+    return {"success": True, "message": "任务已取消"}

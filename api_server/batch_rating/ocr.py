@@ -19,6 +19,7 @@ import threading
 import time
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+from ..native_work import bounded_thread
 
 from .ocr_candidates import (
     candidates_from_spans,
@@ -58,7 +59,7 @@ def _cached_neural(image, key):
 async def prepare_ocr():
     """Warm both local models without delaying unrelated website startup."""
     try:
-        await asyncio.to_thread(warmup)
+        await bounded_thread(warmup)
         logger.info(
             "Local Chinese OCR models ready (fast detection + adaptive row verification)."
         )
@@ -79,7 +80,7 @@ def decode_image(encoded: str) -> Image.Image:
     if len(raw) > MAX_IMAGE_BYTES:
         raise ValueError("图片不能超过 8 MB")
     try:
-        with Image.open(io.BytesIO(raw)) as image:
+        with Image.open(io.BytesIO(raw), formats=("PNG", "JPEG", "WEBP")) as image:
             if image.width * image.height > 20_000_000:
                 raise ValueError("图片像素过大，请框选账号列表")
             return ImageOps.exif_transpose(image).convert("RGB")
@@ -221,12 +222,19 @@ async def _recognize_native(image: Image.Image) -> dict:
 
 async def recognize_image(encoded: str) -> dict:
     started = time.perf_counter()
-    image = decode_image(encoded)
+    image = await bounded_thread(decode_image, encoded)
+    try:
+        return await _recognize_loaded(image, encoded, started)
+    finally:
+        image.close()
+
+
+async def _recognize_loaded(image, encoded, started):
     key = hashlib.sha256(encoded.split(",", 1)[-1].encode("ascii")).hexdigest()
     cache_hit = False
     try:
         # The model and screenshots stay on this host; only public model files download.
-        result, cache_hit = await asyncio.to_thread(_cached_neural, image, key)
+        result, cache_hit = await bounded_thread(_cached_neural, image, key)
     except OCRInputError:
         # A readable image without a BattleTag is a validation issue, not an
         # unavailable OCR component. Do not hide it behind a fallback error.

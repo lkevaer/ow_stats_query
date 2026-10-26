@@ -33,7 +33,7 @@ if ($listener) {
 $env:PYTHONUTF8 = '1'
 $env:OW_SERVER_HOST = '127.0.0.1'
 $env:OW_SERVER_PORT = [string]$Port
-$arguments = @('-m', 'uvicorn', 'api_server.main:app', '--host', '127.0.0.1', '--port', [string]$Port, '--workers', '1', '--loop', 'asyncio', '--timeout-keep-alive', '30')
+$arguments = @('-m', 'uvicorn', 'api_server.main:app', '--host', '127.0.0.1', '--port', [string]$Port, '--workers', '1', '--loop', 'asyncio', '--limit-concurrency', '64', '--timeout-graceful-shutdown', '30', '--timeout-keep-alive', '30')
 if (Test-Path -LiteralPath (Join-Path $projectDir '.env')) {
     $arguments += @('--env-file', '.env')
 }

@@ -2,6 +2,19 @@ services:
   ow-stats:
     build: .
     restart: unless-stopped
+    init: true
+    cpus: "${OW_CONTAINER_CPUS:-2.0}"
+    mem_limit: "${OW_CONTAINER_MEMORY:-1536m}"
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "127.0.0.1:41888:8080"
     env_file: .env

@@ -1,0 +1,18 @@
+name: 问题反馈
+description: 提交经过匿名处理的功能或显示问题
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 现象和复现步骤
+      description: 请说明预期与实际结果。不要填写真实ID、密钥或未打码群截图；安全问题按SECURITY.md私密报告。
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 评分版本或提交号、浏览器/系统
+  - type: textarea
+    id: anonymous_example
+    attributes:
+      label: 匿名示例或截图

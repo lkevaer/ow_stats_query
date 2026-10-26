@@ -16,6 +16,11 @@ jobs:
       - run: node --check api_server/static/rating_account.js
       - run: node --check api_server/static/batch_rating_ocr.js
       - run: node --test tests/test_ocr_ui.cjs tests/test_rating_ui.cjs tests/test_rating_account.cjs tests/test_game_assets.cjs
+      - name: Audit pinned API runtime
+        run: |
+          python -m venv "$RUNNER_TEMP/ow-audit"
+          "$RUNNER_TEMP/ow-audit/bin/python" -m pip install -q pip-audit==2.10.1
+          "$RUNNER_TEMP/ow-audit/bin/python" -m pip_audit --disable-pip --no-deps --strict -r constraints-api.txt
   container:
     runs-on: ubuntu-latest
     steps:

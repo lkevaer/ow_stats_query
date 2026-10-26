@@ -12,10 +12,12 @@ import sqlite3
 import time
 from typing import Any
 import uuid
+import hashlib
+from fastapi import HTTPException
 
 from ..query_audit import record_successful_ids
 from ..metrics import REGISTRY
-from ..work_queue import work_queue
+from ..work_queue import work_queue, WorkQueue
 from .ocr import normalize_tags, recognize_image
 from .player_cache import CLEANUP_SECONDS, FRESH_SECONDS, RETAIN_SECONDS, PlayerDataCache, PlayerSnapshot
 from .circuit import UpstreamCircuit
@@ -42,6 +44,10 @@ class BatchRatingService:
         self.current_season = int(os.getenv("OW_RATING_CURRENT_SEASON", "25"))
         self.player_cache = PlayerDataCache()
         self.queue = work_queue(state)
+        self.cached_queue = WorkQueue(capacity=4, timeout=30)
+        self._cores: dict[tuple, dict] = {}
+        self._waiters: dict[asyncio.Task, int] = {}
+        self._player_interest: dict[str, int] = {}
         self._player_tasks: dict[str, asyncio.Task] = {}
         self._detail_tasks: dict[str, asyncio.Task] = {}
         self.circuit = UpstreamCircuit()
@@ -70,6 +76,7 @@ class BatchRatingService:
             await self._maintenance_once()
 
     async def close(self):
+        await self.cached_queue.close()
         tasks = list(set(self.running.values()) | set(self._player_tasks.values()) | set(self._detail_tasks.values()))
         if self._maintenance_task is not None:
             tasks.append(self._maintenance_task)
@@ -130,23 +137,68 @@ class BatchRatingService:
         extracted = await self.queue.call(lambda: recognize_image(image_base64))
         return {**extracted, "source": "image"}
 
-    def start(self, mode: str, prepared: dict) -> dict:
+    def core_key(self, mode, prepared):
+        return mode, self.current_season, tuple(sorted(prepared["battletags"]))
+
+    def is_pending(self, mode, prepared):
+        core = self._cores.get(self.core_key(mode, prepared))
+        return core is not None and not core["task"].done()
+
+    def reuse(self, mode, prepared, owner):
+        signature = hashlib.sha256(json.dumps([mode, prepared], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        for job in self.jobs.values():
+            if job["status"] in {"queued", "running"} and job.get("_owner") == owner:
+                if job.get("_signature") == signature:
+                    return self.public_job(job)
+                raise HTTPException(429, "上一条查询仍在运行，请等待完成", headers={"Retry-After": "5"})
+        return None
+
+    def start(self, mode: str, prepared: dict, *, owner=None, snapshots=None) -> dict:
         self._cleanup()
-        if sum(job["status"] in {"queued", "running"} for job in self.jobs.values()) >= 4:
-            raise QueryFailure("已有多批查询排队，请等待完成后再提交")
+        if owner:
+            existing = self.reuse(mode, prepared, owner)
+            if existing:
+                return existing
+        if len(self.running) >= 16:
+            raise HTTPException(429, "查询队列已满，请稍后重试", headers={"Retry-After": "5"})
+        core_key = self.core_key(mode, prepared)
+        core = self._cores.get(core_key)
+        if core is None or core["task"].done():
+            core = {"status": "queued", "stage": "等待查询", "progress": 0, "completed_players": 0}
+
+            async def compute():
+                core.update(status="running", stage="读取英雄位置配置")
+                # Shared computation contains no caller's OCR text/corrections.
+                clean = {"battletags": list(prepared["battletags"]), "source": "battletags"}
+                if snapshots is not None:
+                    clean["_snapshots"] = snapshots
+                return await self.query(mode, clean, progress=lambda stage, pct, completed: core.update(
+                    stage=stage, progress=round(pct, 1), completed_players=completed))
+
+            core["task"] = (self.cached_queue if snapshots is not None else self.queue).submit(compute)
+            self._cores[core_key] = core
+            def clear_core(done):
+                if self._cores.get(core_key) is core:
+                    self._cores.pop(core_key, None)
+            core["task"].add_done_callback(clear_core)
         key = uuid.uuid4().hex
         now = time.time()
         job = {"task_id": key, "status": "queued", "mode": mode, "stage": "等待查询", "progress": 0,
                "created_at": now, "updated_at": now, "battletags": prepared["battletags"], "completed_players": 0,
-               "total_players": len(prepared["battletags"]), "result": None}
-        task = self.queue.submit(lambda: self._run_job(job, prepared))
+               "total_players": len(prepared["battletags"]), "result": None,
+               "_core": core, "_owner": owner,
+               "_signature": hashlib.sha256(json.dumps([mode, prepared], sort_keys=True, ensure_ascii=False).encode()).hexdigest()}
+        task = asyncio.create_task(self._run_job(job, prepared))
         self.jobs[key] = job
         self.running[key] = task
         task.add_done_callback(lambda _: self.running.pop(key, None))
         return self.public_job(job)
 
     def public_job(self, job):
-        return {**{k: v for k, v in job.items() if not k.startswith("_")}, "queue": self.queue.status()}
+        result = {k: v for k, v in job.items() if not k.startswith("_")}
+        if job["status"] in {"queued", "running"} and job.get("_core"):
+            result.update({k: v for k, v in job["_core"].items() if k != "task"})
+        return {**result, "queue": self.queue.status()}
 
     def get_job(self, key: str) -> dict | None:
         self._cleanup()
@@ -182,27 +234,37 @@ class BatchRatingService:
 
     async def _run_job(self, job, prepared):
         try:
-            async with self.batch_slots:
-                job.update(status="running", stage="读取英雄位置配置", updated_at=time.time())
-                result = await self.query(job["mode"], prepared, progress=lambda stage, pct, completed: job.update(
-                    stage=stage, progress=round(pct, 1), completed_players=completed, updated_at=time.time()))
-                job.update(status="done", stage="查询完成", progress=100, result=result, updated_at=time.time())
-                try:
-                    await asyncio.to_thread(self._save_report, job)
-                    job["report_persisted"] = True
-                except OSError:
-                    job["report_persisted"] = False
-                    logger.warning("Completed report could not be persisted; result is available in memory", exc_info=True)
+            result = deepcopy(await self._await_shared(job["_core"]["task"]))
+            result["recognized"] = deepcopy(prepared)
+            job.update(status="done", stage="查询完成", progress=100, result=result, updated_at=time.time())
+            try:
+                await asyncio.to_thread(self._save_report, job)
+                job["report_persisted"] = True
+            except OSError:
+                job["report_persisted"] = False
+                logger.warning("Completed report could not be persisted; result is available in memory", exc_info=True)
         except asyncio.CancelledError:
             job.update(status="error", error="查询已取消或超时，请稍后重试", updated_at=time.time())
-            pending = list(self._player_tasks.values()) + list(self._detail_tasks.values())
-            for task in pending:
-                task.cancel()
-            if pending:
-                await asyncio.gather(*pending, return_exceptions=True)
             raise
         except Exception as exc:
-            job.update(status="error", error=str(exc) if isinstance(exc, (ValueError, QueryFailure)) else f"查询失败（{type(exc).__name__}）", updated_at=time.time())
+            message = str(exc.detail) if isinstance(exc, HTTPException) else str(exc) if isinstance(exc, (ValueError, QueryFailure)) else "查询暂时失败，请稍后重试"
+            job.update(status="error", error=message, updated_at=time.time())
+        finally:
+            job.pop("_core", None)
+
+    async def _await_shared(self, task, *, cancel_unobserved=True):
+        self._waiters[task] = self._waiters.get(task, 0) + 1
+        try:
+            return await asyncio.shield(task)
+        finally:
+            remaining = self._waiters[task] - 1
+            if remaining:
+                self._waiters[task] = remaining
+            else:
+                self._waiters.pop(task, None)
+                if cancel_unobserved and not task.done():
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
 
     async def _request(self, method, *args, **kwargs):
         operation = getattr(method, "__name__", None) or getattr(method, "_mock_name", "request") or "request"
@@ -289,20 +351,23 @@ class BatchRatingService:
             REGISTRY.counter("ow_rating_player_cache_total", {"result": "coalesced"}).inc()
             progress(f"复用 {battletag} 正在进行的查询")
         # A cancelled HTTP request must not cancel another request's shared fetch.
-        return deepcopy(await asyncio.shield(task))
+        return deepcopy(await self._await_shared(task, cancel_unobserved=False))
 
     async def has_fresh_data(self, mode, battletags):
+        return await self.fresh_snapshots(mode, battletags) is not None
+
+    async def fresh_snapshots(self, mode, battletags):
         try:
+            result = {}
             for tag in battletags:
                 key = self.player_cache.key(tag, mode, self.current_season, MATCH_LIMIT)
-                if key in self._player_tasks:
-                    continue
                 cached = await asyncio.to_thread(self.player_cache.get, key)
                 if cached is None or not cached.fresh(time.time()):
-                    return False
-            return True
+                    return None
+                result[tag] = cached
+            return result
         except (OSError, sqlite3.Error):
-            return False
+            return None
 
     @staticmethod
     def _cache_metadata(snapshot, source, error=None):
@@ -425,7 +490,7 @@ class BatchRatingService:
         pending = self._detail_tasks.get(key)
         if pending is not None:
             REGISTRY.counter("ow_match_detail_cache_total", {"result": "coalesced"}).inc()
-            data = await asyncio.shield(pending)
+            data = await self._await_shared(pending)
             if contains(data) and "matchRet" in data:
                 return deepcopy(data)
 
@@ -459,9 +524,32 @@ class BatchRatingService:
                 done.exception()
 
         task.add_done_callback(finished)
-        return deepcopy(await asyncio.shield(task))
+        return deepcopy(await self._await_shared(task))
 
     async def query(self, mode: str, prepared: dict, progress=None):
+        # Reserve interest before asynchronous configuration reads. A caller
+        # preparing the same query must not lose a fetch when another cancels.
+        keys = [self.player_cache.key(tag, mode, self.current_season, MATCH_LIMIT) for tag in prepared["battletags"]]
+        for key in keys:
+            self._player_interest[key] = self._player_interest.get(key, 0) + 1
+        try:
+            return await self._query(mode, prepared, progress)
+        finally:
+            abandoned = []
+            for key in keys:
+                remaining = self._player_interest[key] - 1
+                if remaining:
+                    self._player_interest[key] = remaining
+                else:
+                    self._player_interest.pop(key, None)
+                    task = self._player_tasks.get(key)
+                    if task is not None and not task.done():
+                        task.cancel()
+                        abandoned.append(task)
+            if abandoned:
+                await asyncio.gather(*abandoned, return_exceptions=True)
+
+    async def _query(self, mode: str, prepared: dict, progress=None):
         if mode not in MODE_MAP:
             raise ValueError("不支持的查询模式")
         if self.state.api_client is None or self.state.bnet_search is None:
@@ -487,17 +575,33 @@ class BatchRatingService:
                     stages[tag] = stage
                     if progress:
                         progress(stage, 5 + 90 * completed / len(tags), completed)
-                result = await self._one_player(tag, mode, heroes, maps, ranks, update)
+                snapshots = prepared.get("_snapshots")
+                if snapshots is not None:
+                    snapshot = snapshots[tag]
+                    result = self._rate_snapshot(tag, snapshot, heroes, maps, ranks)
+                    if result["errors"]:
+                        raise QueryFailure("缓存暂时无法评分，请稍后重新查询")
+                    result["data_cache"] = self._cache_metadata(snapshot, "cache")
+                    REGISTRY.counter("ow_rating_player_cache_total", {"result": "hit"}).inc()
+                else:
+                    result = await self._one_player(tag, mode, heroes, maps, ranks, update)
                 results.append(result)
                 completed += 1
                 if progress:
                     progress(f"已完成 {completed}/{len(tags)} 位玩家", 5 + 90 * completed / len(tags), completed)
 
-        await asyncio.gather(*(one_player(tag) for tag in tags))
+        tasks = [asyncio.create_task(one_player(tag)) for tag in tags]
+        try:
+            await asyncio.gather(*tasks)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
         ranked = rank_players(results)
         await record_successful_ids(p.get("resolved_battletag") or p["battletag"] for p in ranked if p["score"] is not None)
         return {"mode": mode, "mode_label": MODE_NAMES[mode], "matches_per_player": MATCH_LIMIT,
                 "generated_at": datetime.now().astimezone().isoformat(), "players": ranked, "summary_text": grouped_summary(ranked),
-                "recognized": prepared, "scoring_version": VERSION, "relative_notice": RELATIVE_NOTICE, "scope_notice":SCOPE_NOTICE, "hero_registry_count": len(heroes),
+                "recognized": {k: v for k, v in prepared.items() if not k.startswith("_")}, "scoring_version": VERSION, "relative_notice": RELATIVE_NOTICE, "scope_notice":SCOPE_NOTICE, "hero_registry_count": len(heroes),
                 "summary": {"requested_players": len(tags), "rated_players": sum(p["score"] is not None for p in results),
                             "complete_players": sum(p["rated_matches"] == 12 for p in results), "rated_matches": sum(p["rated_matches"] for p in results)}}

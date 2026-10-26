@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from ..batch_rating.ocr import recognize_image
 from ..batch_rating.scoring import scoring_rules
 from ..batch_rating.service import BatchRatingService, QueryFailure
-from ..security import admit_heavy
+from ..security import admit_heavy, request_owner, run_ocr
 from .utils import get_app_state, require_account_ready
 
 router = APIRouter(prefix="/api/batch-rating", tags=["batch-rating"])
@@ -38,11 +38,16 @@ async def _query(mode, body, response, state, request):
         raise HTTPException(503, "批量评分尚未初始化")
     try:
         if body.image_base64 and not body.battletags:
-            admit_heavy(request, "ocr")
-        prepared = await worker.prepare(body.battletags, body.image_base64, full_match=body.full_match)
-        if not await worker.has_fresh_data(mode, prepared["battletags"]):
-            admit_heavy(request)
-        job = worker.start(mode, prepared)
+            prepared = await run_ocr(request, lambda: worker.prepare(body.battletags, body.image_base64, full_match=body.full_match))
+        else:
+            prepared = await worker.prepare(body.battletags, body.image_base64, full_match=body.full_match)
+        owner = request_owner(request)
+        job = worker.reuse(mode, prepared, owner)
+        if job is None:
+            snapshots = await worker.fresh_snapshots(mode, prepared["battletags"])
+            if snapshots is None and not worker.is_pending(mode, prepared):
+                admit_heavy(request)
+            job = worker.start(mode, prepared, owner=owner, snapshots=snapshots)
         if body.wait:
             import asyncio
             await asyncio.shield(worker.running[job["task_id"]])
@@ -75,10 +80,10 @@ async def competitive(body: RatingRequest, response: Response, request: Request,
 @router.post("/recognize", summary="本机中文OCR识别截图中的完整BattleTag")
 async def recognize(body: ImageRequest, request: Request):
     try:
-        admit_heavy(request, "ocr")
         state = getattr(request.app.state, "ow_app", None) or request.app.state
         from ..work_queue import work_queue
-        return {"success": True, "data": await work_queue(state).call(lambda: recognize_image(body.image_base64))}
+        result = await run_ocr(request, lambda: work_queue(state).call(lambda: recognize_image(body.image_base64)))
+        return {"success": True, "data": result}
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     except RuntimeError as exc:

@@ -75,7 +75,9 @@ GitHub Actions 会检查评分与查询逻辑，并构建、启动 Docker 镜像
 
 公开使用的限流、统一队列、管理权限、旧缓存降级、资源预算和部署验收见 [PUBLIC_OPERATIONS.md](PUBLIC_OPERATIONS.md)。API文档默认关闭；完成的旧版本报告显示当时的评分版本，重新查询使用当前算法。
 
-QQ群机器人需求见 [BOT_BACKLOG.md](BOT_BACKLOG.md)，绑定自己、自动凑齐队伍与默认查询本人将在部署机器人时实现。
+QQ群机器人已在独立项目 [astrbot_plugin_ow_stats](https://github.com/lkevaer/astrbot_plugin_ow_stats) 实现帮助、绑定/解绑、竞技/休闲、截图多人查询与韩服数据长图。安装与服务凭据配置以机器人仓库说明为准。
+
+开发入口是 `api_server/main.py` 与 `api_server/static/`。根目录遗留的 Taro 模板不参与当前网页构建；检查前端使用 Node 内置测试，无需安装模板依赖。开发流程见 [CONTRIBUTING.md](CONTRIBUTING.md)，素材来源见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
 ## 文件与授权
 

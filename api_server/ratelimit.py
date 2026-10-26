@@ -35,7 +35,7 @@ class SlidingWindowLimiter:
             q.append(now)
             return True
 
-    def try_with_retry_after(self, key: str) -> tuple[bool, float]:
+    def try_with_retry_after(self, key: str, *, consume: bool = True) -> tuple[bool, float]:
         now = time.monotonic()
         cutoff = now - self._window
         with self._lock:
@@ -56,7 +56,8 @@ class SlidingWindowLimiter:
                 # 估算多久后有空闲位置
                 retry_after = max(0.1, (q[0] + self._window) - now)
                 return False, retry_after
-            q.append(now)
+            if consume:
+                q.append(now)
             return True, 0.0
 
     def cleanup(self) -> None:

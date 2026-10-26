@@ -100,7 +100,7 @@ class InfrastructureTests(unittest.IsolatedAsyncioTestCase):
                             "app": SimpleNamespace(state=SimpleNamespace(ow_app=state))})
         self.assertEqual(client_ip(request("198.51.100.10", "1.1.1.1")), "198.51.100.10")
         self.assertEqual(client_ip(request("127.0.0.1", "1.1.1.1, 198.51.100.10")), "198.51.100.10")
-        self.assertEqual(client_ip(request("127.0.0.1", "malformed")), "127.0.0.1")
+        self.assertEqual(client_ip(request("127.0.0.1", "malformed")), "unknown")
         self.assertEqual(client_ip(request("127.0.0.1", "1.1.1.1", [])), "127.0.0.1")
 
 
@@ -163,7 +163,12 @@ class PublicEndpointTests(unittest.IsolatedAsyncioTestCase):
             entered.set();await release.wait()
             return {"players": [], "recognized": {}}
         self.state.batch_rating.query = delayed
-        pending = [asyncio.create_task(self.client.post("/api/batch-rating/competitive", json={"battletags": [f"玩家{i}#1234"], "wait": True})) for i in range(4)]
+        for i in range(3):
+            response = await self.client.post("/api/batch-rating/competitive", json={"battletags": [f"玩家{i}#1234"]},
+                                              headers={"Cookie": f"ow_browser_id={i:032x}"})
+            self.assertEqual(response.status_code, 202)
+        pending = [asyncio.create_task(self.client.post("/api/batch-rating/competitive", json={"battletags": ["玩家3#1234"], "wait": True},
+                                                       headers={"Cookie": "ow_browser_id=" + "f" * 32}))]
         await asyncio.wait_for(entered.wait(), 2)
         for _ in range(100):
             if len(work_queue(self.state).tasks) == 4:break

@@ -34,7 +34,7 @@ from .ratelimit import LIMITERS  # noqa: E402
 from .response_utils import error_response  # noqa: E402
 from .query_audit import record_successful_ids  # noqa: E402
 from .frontend import rating_page  # noqa: E402
-from .security import client_ip, is_local, require_admin, internal_error, admit_heavy, RequestBodyLimit  # noqa: E402
+from .security import client_ip, is_local, require_admin, internal_error, admit_heavy, RequestBodyLimit, service_identity  # noqa: E402
 from .work_queue import work_queue  # noqa: E402
 from .routers import (  # noqa: E402
     bind_router,
@@ -201,6 +201,9 @@ async def _security_and_metrics_middleware(request: Request, call_next):
     route_label = _route_label(path)
     is_progress = request.method == "GET" and (path.startswith("/api/batch-rating/tasks/") or path.startswith("/api/task/") or path == "/api/query-status")
     try:
+        bot_identity = service_identity(request)
+        if bot_identity and not (path.startswith("/api/batch-rating/") or path == "/api/hero-rates"):
+            raise HTTPException(403, "服务凭据不允许访问此接口")
         if path == "/metrics" and not is_local(request):
             raise HTTPException(403, "监控接口仅允许本机访问")
         if route_label in {"docs", "openapi"} and not is_local(request):
@@ -227,7 +230,7 @@ async def _security_and_metrics_middleware(request: Request, call_next):
     except Exception:
         rate_bypass = True
 
-    if not rate_bypass and not is_progress and route_label not in ("static", "health", "metrics", "docs", "openapi"):
+    if not bot_identity and not rate_bypass and not is_progress and route_label not in ("static", "health", "metrics", "docs", "openapi"):
         provided_key = request.headers.get("x-api-key") or ""
         ip = _client_ip(request)
         # user_token 从查询参数或 headers 取
@@ -256,7 +259,7 @@ async def _security_and_metrics_middleware(request: Request, call_next):
             )
 
     # ------ API Key 检查 ------
-    if _needs_api_key(path, api_key_cfg):
+    if not bot_identity and _needs_api_key(path, api_key_cfg):
         provided = (request.headers.get("x-api-key") or "").strip()
         if not provided or not secrets.compare_digest(provided, api_key_cfg):
             logger.warning(
@@ -327,7 +330,7 @@ async def _security_and_metrics_middleware(request: Request, call_next):
         response.headers["Cache-Control"] = "no-store"
     elif path.startswith("/static/game-icons/"):
         response.headers["Cache-Control"] = "public, max-age=86400"
-    if browser_id != request.state.browser_id and path.startswith("/api/"):
+    if not bot_identity and browser_id != request.state.browser_id and path.startswith("/api/"):
         response.set_cookie("ow_browser_id", request.state.browser_id, max_age=31_536_000, httponly=True,
                             secure=request.url.scheme == "https", samesite="lax")
     return response
@@ -339,6 +342,8 @@ async def _security_and_metrics_middleware(request: Request, call_next):
 @app.on_event("startup")
 async def on_startup():
     cfg = _config
+    from .db.task_db import recover_interrupted_tasks
+    recover_interrupted_tasks()
     state = await initialize_modules(cfg)
     app.state.ow_app = state
 

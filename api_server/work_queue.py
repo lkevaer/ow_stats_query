@@ -6,26 +6,33 @@ from fastapi import HTTPException
 
 
 class WorkQueue:
-    def __init__(self, capacity=4, timeout=180):
+    def __init__(self, capacity=4, timeout=180, concurrency=1):
         self.capacity = capacity
         self.timeout = timeout
         self.tasks: set[asyncio.Task] = set()
-        self._slot = asyncio.Semaphore(1)
+        self._slot = asyncio.Semaphore(concurrency)
         self.active = 0
 
     def submit(self, operation):
         if len(self.tasks) >= self.capacity:
             raise HTTPException(429, "查询队列已满，请稍后重试", headers={"Retry-After": "10"})
+        deadline = asyncio.get_running_loop().time() + self.timeout
 
-        async def run():
+        async def execute():
             async with self._slot:
                 self.active += 1
                 try:
-                    return await asyncio.wait_for(operation(), timeout=self.timeout)
-                except asyncio.TimeoutError as exc:
-                    raise HTTPException(504, "查询超时，请稍后重试") from exc
+                    return await operation()
                 finally:
                     self.active -= 1
+
+        async def run():
+            # Queueing and execution share one budget. Cancellation cleanup may
+            # retain a slot until an already-running native worker really exits.
+            try:
+                return await asyncio.wait_for(execute(), timeout=max(0, deadline - asyncio.get_running_loop().time()))
+            except asyncio.TimeoutError as exc:
+                raise HTTPException(504, "查询超时，请稍后重试") from exc
 
         task = asyncio.create_task(run())
         self.tasks.add(task)

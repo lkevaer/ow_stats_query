@@ -16,6 +16,10 @@ import httpx
 
 SOURCE_URL = "https://overwatch.nexon.com/hero/rate"
 REFRESH_SECONDS = 21600
+ACTIVE_SECONDS = 86400
+RETAIN_SECONDS = 7 * 86400
+MAX_VARIANTS = 128
+MAX_CACHE_BYTES = 32 * 1024 * 1024
 DEFAULT_FILTERS = {
     "role": "all",
     "rq": "2",
@@ -136,6 +140,8 @@ class HeroRatesCache:
 
     def read(self, key: str) -> dict | None:
         try:
+            if (self.directory / (key + ".json")).stat().st_size > 1024 * 1024:
+                return None
             snapshot = json.loads(
                 (self.directory / (key + ".json")).read_text(encoding="utf-8")
             )
@@ -146,6 +152,43 @@ class HeroRatesCache:
         except (OSError, ValueError, KeyError, TypeError):
             pass
         return None
+
+    def accessed_at(self, key, fallback=0):
+        try:
+            return (self.directory / (key + ".used")).stat().st_mtime
+        except OSError:
+            return fallback
+
+    def cleanup(self, protected=()):
+        """Cold variants expire; background refresh does not renew user activity."""
+        now = self.clock()
+        retained = []
+        for path in self.directory.glob("*.json"):
+            if not re.fullmatch(r"[0-9a-f]{64}", path.stem):
+                continue
+            try:
+                info = path.stat()
+                access = self.accessed_at(path.stem, info.st_mtime)
+                retained.append((access, info.st_size, path))
+            except OSError:
+                continue
+        total, count = sum(row[1] for row in retained), len(retained)
+        pinned = {self.cache_key(DEFAULT_FILTERS), *protected, *self.refreshing}
+        for access, size, path in sorted(retained):
+            if path.stem in pinned:
+                continue
+            if now - access < RETAIN_SECONDS and count <= MAX_VARIANTS and total <= MAX_CACHE_BYTES:
+                continue
+            path.unlink(missing_ok=True)
+            path.with_suffix(".used").unlink(missing_ok=True)
+            total, count = total - size, count - 1
+        for path in self.directory.glob("*.used"):
+            if re.fullmatch(r"[0-9a-f]{64}", path.stem) and not path.with_suffix(".json").exists():
+                path.unlink(missing_ok=True)
+        for path in self.directory.glob("*.tmp"):
+            if re.fullmatch(r"[0-9a-f]{64}", path.stem) and path.stem not in self.refreshing:
+                path.unlink(missing_ok=True)
+        self.retry_after = {key: value for key, value in self.retry_after.items() if value > now}
 
     def schedule(self, selected: dict) -> asyncio.Task | None:
         key = self.cache_key(selected)
@@ -209,12 +252,15 @@ class HeroRatesCache:
                 self.directory.mkdir(parents=True, exist_ok=True)
                 path = self.directory / (key + ".json")
                 temporary = path.with_suffix(".tmp")
-                temporary.write_text(
-                    json.dumps(snapshot, ensure_ascii=False), encoding="utf-8"
-                )
-                temporary.replace(path)
+                try:
+                    temporary.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+                    temporary.replace(path)
+                finally:
+                    temporary.unlink(missing_ok=True)
                 self.retry_after.pop(key, None)
             except (httpx.HTTPError, ValueError, KeyError, TypeError, OSError) as error:
+                if len(self.retry_after) >= MAX_VARIANTS:
+                    self.retry_after.pop(min(self.retry_after, key=self.retry_after.get), None)
                 self.retry_after[key] = self.clock() + 300
                 logger.warning(
                     "Hero statistics refresh failed (%s); retaining the previous snapshot",
@@ -234,6 +280,13 @@ class HeroRatesCache:
             raise RuntimeError(
                 "该筛选组合尚未缓存成功，请稍后重试；没有使用其他条件的数据代替。"
             )
+        try:
+            accessed = self.directory / (key + ".used")
+            accessed.touch()
+            os.utime(accessed, (self.clock(), self.clock()))
+            self.cleanup(protected=(key,))
+        except OSError:
+            logger.warning("Hero cache maintenance failed; response remains available")
         role = selected["role"]
         parent = next(
             item.get("parentValue")
@@ -279,11 +332,16 @@ class HeroRatesCache:
 
     async def run(self):
         while True:
+            try:
+                self.cleanup()
+            except OSError:
+                logger.warning("Hero cache cleanup failed; will retry")
             selected = [DEFAULT_FILTERS]
             for path in self.directory.glob("*.json"):
                 try:
                     snapshot = json.loads(path.read_text(encoding="utf-8"))
-                    if self.clock() - snapshot["fetched_at"] >= REFRESH_SECONDS:
+                    if (self.clock() - self.accessed_at(path.stem, snapshot["fetched_at"]) < ACTIVE_SECONDS
+                            and self.clock() - snapshot["fetched_at"] >= REFRESH_SECONDS):
                         selected.append(self.validate(snapshot["filters"]))
                 except (OSError, ValueError, KeyError, TypeError):
                     continue

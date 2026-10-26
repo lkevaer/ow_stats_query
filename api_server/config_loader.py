@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import ipaddress
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -67,9 +68,18 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Dict[str, Any]:
     server["enable_docs"] = _env_override(bool(server.get("enable_docs", False)), "OW_ENABLE_DOCS")
     security = raw["security"]
     security["admin_api_key"] = _env_override(str(security.get("admin_api_key") or ""), "OW_ADMIN_API_KEY")
+    security["bot_api_key"] = _env_override(str(security.get("bot_api_key") or ""), "OW_BOT_API_KEY")
     proxy_env = os.getenv("OW_TRUSTED_PROXY_CIDRS")
     if proxy_env is not None:
         security["trusted_proxy_cidrs"] = [value.strip() for value in proxy_env.split(",") if value.strip()]
+    if "trusted_proxy_cidrs" in security:
+        networks = security["trusted_proxy_cidrs"]
+        if isinstance(networks, str):
+            networks = networks.split(",")
+        security["trusted_proxy_cidrs"] = [str(ipaddress.ip_network(value.strip(), strict=False)) for value in networks]
+    # Service identities must not be obtainable with a public/client/admin key.
+    if security["bot_api_key"] and security["bot_api_key"] in {server["api_key"], security["admin_api_key"]}:
+        raise ValueError("OW_BOT_API_KEY must be independent of web/admin credentials")
     cors_env = os.getenv("OW_SERVER_CORS_ORIGINS")
     if cors_env:
         server["cors_origins"] = _parse_cors_env(cors_env)

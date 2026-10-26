@@ -17,6 +17,7 @@ FRESH_SECONDS = 5 * 60
 RETAIN_SECONDS = 24 * 60 * 60
 CLEANUP_SECONDS = 5 * 60
 DEFAULT_CACHE_FILE = Path(__file__).resolve().parents[2] / "data" / "batch_rating_cache.sqlite3"
+MAX_CACHE_BYTES = 128 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,11 @@ class PlayerDataCache:
         connection = sqlite3.connect(self.path, timeout=5)
         try:
             connection.execute("PRAGMA secure_delete=ON")
+            page_size = connection.execute("PRAGMA page_size").fetchone()[0]
+            budget = MAX_CACHE_BYTES // page_size
+            effective = connection.execute(f"PRAGMA max_page_count={budget}").fetchone()[0]
+            # SQLite cannot shrink an existing oversize database with a pragma.
+            # Reject new writes there while preserving old snapshots for reads.
             if not self._initialized:
                 connection.execute("PRAGMA journal_mode=WAL")
                 connection.execute("""CREATE TABLE IF NOT EXISTS player_snapshots (
@@ -59,7 +65,6 @@ class PlayerDataCache:
                 connection.execute("CREATE INDEX IF NOT EXISTS player_snapshots_age ON player_snapshots(fetched_at)")
                 connection.execute("CREATE TABLE IF NOT EXISTS match_snapshots (cache_key TEXT PRIMARY KEY, fetched_at REAL NOT NULL, payload TEXT NOT NULL)")
                 connection.execute("CREATE INDEX IF NOT EXISTS match_snapshots_age ON match_snapshots(fetched_at)")
-                connection.execute("PRAGMA max_page_count=32768")
                 connection.commit()
                 if os.name != "nt":
                     self.path.chmod(0o600)
@@ -104,6 +109,8 @@ class PlayerDataCache:
         if not math.isfinite(snapshot.fetched_at) or not snapshot.usable(time.time()):
             raise ValueError("Cannot save an expired snapshot")
         with self._lock, closing(self._connect()) as connection, connection:
+            if connection.execute("PRAGMA page_count").fetchone()[0] * connection.execute("PRAGMA page_size").fetchone()[0] > MAX_CACHE_BYTES:
+                raise sqlite3.OperationalError("Cache capacity exceeded; retaining existing snapshots")
             connection.execute(f"""INSERT INTO {table}(cache_key, fetched_at, payload) VALUES (?, ?, ?)
                 ON CONFLICT(cache_key) DO UPDATE SET fetched_at=excluded.fetched_at, payload=excluded.payload
                 WHERE excluded.fetched_at >= {table}.fetched_at""", (key, snapshot.fetched_at, payload))
@@ -115,5 +122,14 @@ class PlayerDataCache:
                 removed = sum(connection.execute(f"DELETE FROM {table} WHERE fetched_at<=? OR fetched_at>?", (now - RETAIN_SECONDS, now)).rowcount
                               for table in ("player_snapshots", "match_snapshots"))
             if removed:
+                connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            if self.path.stat().st_size > MAX_CACHE_BYTES:
+                # Evict oldest cached data, then reclaim old pages. Live results
+                # never depend on a successful cache write or compaction.
+                with connection:
+                    for table in ("player_snapshots", "match_snapshots"):
+                        while connection.execute(f"SELECT COALESCE(SUM(length(CAST(payload AS BLOB))), 0) FROM {table}").fetchone()[0] > MAX_CACHE_BYTES // 3:
+                            removed += connection.execute(f"DELETE FROM {table} WHERE cache_key IN (SELECT cache_key FROM {table} ORDER BY fetched_at LIMIT 16)").rowcount
+                connection.execute("VACUUM")
                 connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             return removed
