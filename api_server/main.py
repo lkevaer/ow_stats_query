@@ -30,6 +30,7 @@ from .ratelimit import LIMITERS  # noqa: E402
 from .response_utils import error_response  # noqa: E402
 from .query_audit import record_successful_ids  # noqa: E402
 from .frontend import rating_page  # noqa: E402
+from .feature_flags import is_ocr_enabled  # noqa: E402
 from .routers import (  # noqa: E402
     bind_router,
     hero_router,
@@ -354,7 +355,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/", include_in_schema=False)
 async def root():
-    return rating_page()
+    return rating_page(ocr_enabled=is_ocr_enabled(_config))
 
 
 @app.get("/hero-rates", include_in_schema=False)

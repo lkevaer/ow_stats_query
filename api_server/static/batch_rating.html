@@ -46,9 +46,11 @@
 <p class="note scoring-bias">评分偏重最后一击与 Fleta，因此 T、C 更容易获得高分。段位差距过大的名单，上下等马评级没有比较意义。</p>
 <section class="panel">
 <div class="inputs">
+<!-- OCR_INPUT_START -->
 <div><h2>1 · 上传或粘贴截图</h2><label class="drop" id="drop">选择图片、拖到这里，或按 Ctrl+V 粘贴截图<input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/bmp"><small>增强中文识别 · 本地处理 · 最大 8 MB</small></label>
 <div id="cropEditor" class="hidden"><p class="note">可在图上拖动框选账号列表，排除按钮、聊天等无关文字。</p><div id="cropStage" aria-label="拖动框选账号列表"><img id="preview" alt="原始账号截图，可拖动框选" draggable="false"><div id="cropSelection" class="hidden"></div></div><div class="actions"><button id="recognizeCrop" disabled data-ready="false">识别框选区域</button><button id="recognizeFull">重新识别整张图</button></div><div id="cropNote" class="note">尚未框选，当前识别整张图。</div></div>
 <div class="note" id="ocrNote" role="status"></div><div id="ocrWarnings" class="note"></div><div id="ocrReview"></div></div>
+<!-- OCR_INPUT_END -->
 <div><h2>2 · 检查账号列表</h2><label for="tags">每行一个完整 BattleTag，也可以直接输入</label><textarea id="tags" placeholder="昵称#12345&#10;另一位玩家#67890" spellcheck="false"></textarea><div class="note">手动名单合并本人后去重，最多10人。“查询当局”支持完整10人或12人名单，不额外加入局外账号。识别有误可直接修改。</div><div class="actions"><button id="leisure" class="primary">查询近12场休闲</button><button id="competitive" class="primary">查询近12场竞技</button></div></div>
 </div>
 <div id="status" class="status" role="status">请选择截图或输入账号。</div><progress id="progress" value="0" max="100" class="hidden"></progress>

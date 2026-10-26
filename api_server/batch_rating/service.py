@@ -11,6 +11,7 @@ from typing import Any
 import uuid
 
 from ..query_audit import record_successful_ids
+from ..feature_flags import require_ocr_enabled
 from .ocr import normalize_tags, recognize_image
 from .scoring import VERSION, RELATIVE_NOTICE, SCOPE_NOTICE, aggregate_player, grouped_summary, rank_players, score_match
 
@@ -59,6 +60,7 @@ class BatchRatingService:
             return {"battletags": normalize_tags(battletags, max_players=12 if full_match else 10), "source": "battletags"}
         if not image_base64:
             raise ValueError("请上传截图，或提供 battletags 数组")
+        require_ocr_enabled(getattr(self.state, "config", None))
         extracted = await recognize_image(image_base64)
         return {**extracted, "source": "image"}
 
