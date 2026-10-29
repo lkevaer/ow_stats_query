@@ -6,6 +6,7 @@ import secrets
 import time
 import uuid
 import re
+import math
 
 from fastapi import HTTPException, Request
 from .ratelimit import SlidingWindowLimiter
@@ -84,6 +85,31 @@ def request_owner(request: Request):
         return "bot:" + service[0]
     identity = getattr(request.state, "browser_id", "") or request.cookies.get("ow_browser_id", "")
     return "web:" + client_ip(request) + ":" + identity
+
+
+def admit_rating_query(request: Request, *, full_match: bool = False):
+    """Charge every validated web submission, including cached/shared reports."""
+    if service_identity(request):
+        return
+    state = getattr(request.app.state, "ow_app", None) or request.app.state
+    cfg = (getattr(state, "config", {}) or {}).get("rate_limit") or {}
+    if cfg.get("enable_heavy_limits") is False:
+        return
+    limits = getattr(state, "rating_request_limits", None)
+    if limits is None:
+        limits = state.rating_request_limits = {
+            "ordinary": SlidingWindowLimiter(int(cfg.get("rating_queries_per_window", 2)),
+                                               float(cfg.get("rating_window_seconds", 10))),
+            "full_match": SlidingWindowLimiter(1, float(cfg.get("full_match_cooldown_seconds", 60))),
+        }
+    policy = "full_match" if full_match else "ordinary"
+    allowed, retry = limits[policy].try_with_retry_after(request_owner(request))
+    if not allowed:
+        from .metrics import REGISTRY
+        REGISTRY.counter("rate_limit_throttled_total", {"rule": "rating_" + policy, "route": "/api/batch-rating"}).inc()
+        seconds = max(1, math.ceil(retry))
+        rule = "查询当局名单每分钟只能查询一次" if full_match else "普通查询每10秒最多查询两次"
+        raise HTTPException(429, f"{rule}，请在{seconds}秒后重试", headers={"Retry-After": str(seconds)})
 
 
 async def run_ocr(request, operation):

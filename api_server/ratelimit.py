@@ -16,19 +16,20 @@ class SlidingWindowLimiter:
     - max_requests 窗口内允许的最大请求数
     """
 
-    def __init__(self, max_requests: int, window_seconds: float) -> None:
+    def __init__(self, max_requests: int, window_seconds: float, *, clock=None) -> None:
         self._max = max(1, int(max_requests))
         self._window = max(0.1, float(window_seconds))
         self._buckets: Dict[str, Deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
         self._last_cleanup = 0.0
+        self._clock = clock or time.monotonic
 
     def allow(self, key: str) -> bool:
-        now = time.monotonic()
+        now = self._clock()
         cutoff = now - self._window
         with self._lock:
             q = self._buckets[key]
-            while q and q[0] < cutoff:
+            while q and q[0] <= cutoff:
                 q.popleft()
             if len(q) >= self._max:
                 return False
@@ -36,7 +37,7 @@ class SlidingWindowLimiter:
             return True
 
     def try_with_retry_after(self, key: str, *, consume: bool = True) -> tuple[bool, float]:
-        now = time.monotonic()
+        now = self._clock()
         cutoff = now - self._window
         with self._lock:
             if now - self._last_cleanup >= self._window or len(self._buckets) >= 10_000:
@@ -50,7 +51,7 @@ class SlidingWindowLimiter:
             if key not in self._buckets and len(self._buckets) >= 10_000:
                 return False, self._window
             q = self._buckets[key]
-            while q and q[0] < cutoff:
+            while q and q[0] <= cutoff:
                 q.popleft()
             if len(q) >= self._max:
                 # 估算多久后有空闲位置
@@ -61,12 +62,12 @@ class SlidingWindowLimiter:
             return True, 0.0
 
     def cleanup(self) -> None:
-        now = time.monotonic()
+        now = self._clock()
         cutoff = now - self._window
         with self._lock:
             remove_keys = []
             for k, q in self._buckets.items():
-                while q and q[0] < cutoff:
+                while q and q[0] <= cutoff:
                     q.popleft()
                 if not q:
                     remove_keys.append(k)

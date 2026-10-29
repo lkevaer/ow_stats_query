@@ -4,9 +4,9 @@ const path=require('node:path');
 const test=require('node:test');
 const assert=require('node:assert/strict');
 
-function ui(savedCookie='',ocrEnabled=true){
+function ui(savedCookie='',ocrEnabled=true,savedStorage=new Map()){
   const elements=new Map();
-  const listeners=new Map(),storage=new Map(),requests=[];
+  const listeners=new Map(),storage=savedStorage,requests=[];
   const element=id=>{
     if(!elements.has(id)){
       const classes=new Set(['hidden']);
@@ -21,11 +21,46 @@ function ui(savedCookie='',ocrEnabled=true){
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../api_server/static/game_assets.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../api_server/static/rating_account.js'),'utf8'),context);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../api_server/static/batch_rating.js'),'utf8'),context);
-  return {context,element,listeners,requests,document};
+  return {context,element,listeners,requests,document,storage};
 }
 const rank={known:true,label:'黄金3',icon:'https://example.com/gold.png',role_label:'输出'};
 const match={begin_ts:1792227400000,seconds:600,hero:'测试',role:'dps',role_label:'输出',map_name:'测试地图',metrics:{},stats:{},adjustments:[],warnings:[],rank,score:65,grade:'B',outcome_label:'胜',sample_weight:1,duration_weight:1};
 const player={battletag:'Example#1234',tier:'中等马',score:65,grade:'B',rated_matches:12,status:'complete',primary_role:'dps',matches:[match,match],errors:[],averages:{},latest_rank:rank};
+
+test('match query cooldown survives reload and blocks only match actions for one minute',async()=>{
+  const view=ui();
+  const RealDate=vm.runInContext('Date',view.context);
+  let now=Date.now();
+  const TestDate=class extends RealDate{static now(){return now;}};
+  view.context.Date=TestDate;
+  const complete={dataset:{complete:'true'}},incomplete={dataset:{complete:'false'}};
+  view.element('details').querySelectorAll=()=>[complete,incomplete];
+  await view.context.query('competitive',['Example#1234']);
+  assert.equal(view.context.matchCooldownSeconds(),60);
+  assert.equal(complete.disabled,true);
+  assert.match(complete.textContent,/60秒/);
+  await view.context.query('competitive',['Other#5678']);
+  assert.equal(view.requests.filter(r=>r.options?.method==='POST').length,1);
+  const reopened=ui('',true,view.storage);reopened.context.Date=TestDate;
+  await reopened.context.query('competitive',['Other#5678']);
+  assert.equal(reopened.requests.filter(r=>r.options?.method==='POST').length,0);
+  view.element('tags').value='Other#5678';
+  await view.context.query('leisure');
+  assert.equal(view.requests.filter(r=>r.options?.method==='POST').length,2);
+  now+=60000;view.context.refreshMatchQueryButtons();
+  assert.equal(complete.disabled,false);
+  assert.equal(incomplete.disabled,true);
+  assert.equal(complete.textContent,'查询当局');
+});
+
+test('backend retry-after restores match cooldown without replacing its error message',async()=>{
+  const view=ui();
+  view.context.fetch=async()=>({ok:false,status:429,headers:{get:key=>key==='Retry-After'?'37':null},
+    json:async()=>({success:false,error:'查询当局名单每分钟只能查询一次，请在37秒后重试'})});
+  await view.context.query('competitive',['Example#1234']);
+  assert.equal(view.context.matchCooldownSeconds(),37);
+  assert.match(view.element('status').textContent,/37秒/);
+});
 
 test('manual-only page never suggests uploading screenshots after input state updates',()=>{
   const view=ui('',false);

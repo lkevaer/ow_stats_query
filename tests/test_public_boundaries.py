@@ -304,7 +304,9 @@ class EndpointBoundaryTests(unittest.IsolatedAsyncioTestCase):
         queue.timeout = .04
         response = await self.client.post("/api/task/create", json={"endpoint": "/api/shop"})
         task_id = response.json()["data"]["task_id"]
-        await asyncio.gather(self.state.legacy_tasks[task_id], return_exceptions=True)
+        pending = self.state.legacy_tasks.get(task_id)
+        if pending is not None:
+            await asyncio.gather(pending, return_exceptions=True)
         blocker.cancel()
         await asyncio.gather(blocker, return_exceptions=True)
         await asyncio.sleep(0)
@@ -328,7 +330,7 @@ class EndpointBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 release.set()
                 await pending
 
-    async def test_authenticated_bot_users_have_separate_limits_and_ignore_cookie(self):
+    async def test_authenticated_bot_queries_are_exempt_from_web_cooldowns_and_ignore_cookie(self):
         self.state.config.update(security={"bot_api_key": "independent-bot-secret"}, server={"api_key": "web-only"}, rate_limit={})
         self.state.batch_rating.query = AsyncMock(return_value={"players": []})
         def headers(user):
@@ -339,13 +341,9 @@ class EndpointBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 json={"battletags": [user + "#1234"], "wait": True})
             self.assertEqual(response.status_code, 200)
             self.assertNotIn("set-cookie", response.headers)
-        cooldown = await self.client.post("/api/batch-rating/competitive", headers=headers("alice"), json={"battletags": ["第三个#1234"]})
-        self.assertEqual(cooldown.status_code, 429)
-        self.assertIn("retry-after", cooldown.headers)
         for _ in range(32):
-            denied = await self.client.post("/api/batch-rating/competitive", headers=headers("alice"), json={"battletags": ["第三个#1234"]})
-            self.assertEqual(denied.status_code, 429)
-        # One user's rejected retries cannot drain the shared service allowance.
+            allowed = await self.client.post("/api/batch-rating/competitive", headers=headers("alice"), json={"battletags": ["第三个#1234"], "wait": True})
+            self.assertEqual(allowed.status_code, 200)
         allowed = await self.client.post("/api/batch-rating/competitive", headers=headers("charlie"),
                                          json={"battletags": ["第四个#1234"], "wait": True})
         self.assertEqual(allowed.status_code, 200)

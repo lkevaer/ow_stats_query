@@ -1,5 +1,7 @@
 'use strict';
 let currentReport = null, polling = false, querying = false;
+let matchQueryReadyAt = 0, matchCooldownTimer = null;
+try { matchQueryReadyAt = Number(localStorage.getItem('ow_match_query_ready_at')) || 0; } catch (_) {}
 const $ = id => document.getElementById(id);
 let selfBinding = RatingAccount.read(document.cookie);
 let favoriteState = RatingAccount.readFavorites(localStorage);
@@ -169,10 +171,28 @@ document.addEventListener('keydown',event=>{if(event.key==='Escape')hideMetricHi
 document.addEventListener('scroll',hideMetricHint,true);
 globalThis.addEventListener?.('resize',hideMetricHint);
 function status(text, error=false) { $('status').textContent=text; $('status').className='status'+(error?' error':''); }
+function matchCooldownSeconds(){
+  try { matchQueryReadyAt=Math.max(matchQueryReadyAt,Number(localStorage.getItem('ow_match_query_ready_at'))||0); } catch (_) {}
+  return Math.max(0,Math.ceil((matchQueryReadyAt-Date.now())/1000));
+}
+function refreshMatchQueryButtons(){
+  const seconds=matchCooldownSeconds();
+  $('details').querySelectorAll?.('.query-match').forEach(button=>{
+    button.disabled=querying||button.dataset.complete!=='true'||seconds>0;
+    button.textContent=seconds>0?'查询当局 · '+seconds+'秒':'查询当局';
+    button.title=seconds>0?'查询当局名单每分钟一次，还需等待'+seconds+'秒':'查询当局所有人的最近12场评分';
+  });
+  if(seconds>0&&matchCooldownTimer===null)matchCooldownTimer=setTimeout(()=>{matchCooldownTimer=null;refreshMatchQueryButtons();},1000);
+}
+function setMatchQueryCooldown(seconds){
+  matchQueryReadyAt=Date.now()+seconds*1000;
+  try { localStorage.setItem('ow_match_query_ready_at',String(matchQueryReadyAt)); } catch (_) {}
+  refreshMatchQueryButtons();
+}
 function busy(value) {
   querying=value;
   for (const id of ['leisure','competitive','imageInput','recognizeFull','clearLocalData']) if($(id)) $(id).disabled=value;
-  $('details').querySelectorAll?.('.query-match').forEach(button=>{button.disabled=value||button.dataset.complete!=='true';});
+  refreshMatchQueryButtons();
   if($('recognizeCrop')) $('recognizeCrop').disabled=value||$('recognizeCrop').dataset.ready!=='true';
   if($('cropStage')) $('cropStage').style.pointerEvents=value?'none':'';
 }
@@ -180,7 +200,11 @@ async function api(url, options={}) {
   const key=$('accessKey').value;
   const response=await fetch(url,{cache:'no-store',...options,headers:{...options.headers,...(key?{'X-API-Key':key}:{})}}); let body;
   try { body=await response.json(); } catch { throw new Error('服务响应异常，请确认服务正在运行'); }
-  if (!response.ok || !body.success) throw new Error(body.detail || body.error || '请求失败');
+  if (!response.ok || !body.success) {
+    const error=new Error(body.detail || body.error || '请求失败');
+    error.status=response.status;error.retryAfter=Number(response.headers?.get?.('Retry-After'))||0;
+    throw error;
+  }
   return body.data;
 }
 async function poll(id, fromLink=false) {
@@ -195,6 +219,7 @@ async function poll(id, fromLink=false) {
 }
 async function query(mode, matchTags=null) {
   if(querying)return;
+  if(matchTags!==null&&matchCooldownSeconds()>0){status('查询当局名单每分钟只能查询一次，请在'+matchCooldownSeconds()+'秒后重试。',true);refreshMatchQueryButtons();return;}
   let tags;
   try {
     selfBinding = RatingAccount.read(document.cookie);
@@ -205,10 +230,11 @@ async function query(mode, matchTags=null) {
   busy(true);$('progress').classList.remove('hidden');$('progress').value=0;status('正在创建'+(mode==='leisure'?'休闲':'竞技')+'查询…');
   try {
     const job=await api('/api/batch-rating/'+mode,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({battletags:tags,...(matchTags!==null?{full_match:true}:{})})});
+    if(matchTags!==null)setMatchQueryCooldown(60);
     localStorage.setItem('ow_batch_rating_task',job.task_id);
     if(/^[a-f0-9]{32}$/.test(job.task_id))globalThis.history?.replaceState(null,'','/?task='+job.task_id);
     await poll(job.task_id);
-  } catch (error) { status(error.message,true); } finally { busy(false);polling=false; }
+  } catch (error) { if(matchTags!==null&&error.status===429&&error.retryAfter>0)setMatchQueryCooldown(error.retryAfter);status(error.message,true); } finally { busy(false);polling=false; }
 }
 $('leisure').onclick=()=>query('leisure');$('competitive').onclick=()=>query('competitive');
 function number(value,digits=1) { return value==null?'—':Number(value).toFixed(digits); }
@@ -440,6 +466,7 @@ function render(report) {
   $('relativeNotice').textContent=report.relative_notice||'上下等马仅在本次查询名单内相对区分；相对评分不代表绝对水平。名单段位差距过大时，上下等马评级没有比较意义。';
   $('rankings').innerHTML=report.players.map(p=>`<tr>${comparable?'<td>'+(p.rank??'—')+'</td>':''}<td class="tag">${escapeHtml(p.battletag).replace('#','<wbr>#')}${p.status==='partial'?'<span class="cell-note">样本不足，暂定</span>':''}${cacheNotice(p)}</td>${comparable?'<td>'+tierPill(p)+'</td>':''}<td>${scoreMarkup(p,true)}</td><td>${p.rated_matches}/12<span class="cell-note">${metricValue(p,'confidence',pct(p.confidence),'样本完整度')}完整</span></td><td>${escapeHtml(roleNames[p.primary_role]||'—')}</td>${competitive?'<td>'+rankBadge(p.latest_rank)+(p.latest_rank?.known?'<span class="cell-note">'+escapeHtml(p.latest_rank.role_label)+' · 最近可见记录</span>':'')+'</td>':''}<td>${metricValue(p,'win_rate',pct(p.win_rate),'胜率')}<span class="cell-note">${p.wins??0}胜${p.losses??0}负${p.draws??0}平</span>${hotBadge(p)}</td><td>${metricValue(p,'kd',kdLabel(p),'KD')}<span class="cell-note">≥7：${p.high_kd_matches??0}/12场</span></td><td>${metricValue(p,'final_blow_share',pct(p.final_blow_share),'最后一击占比')}</td><td>${metricValue(p,'fleta',pct(p.fleta),'Fleta')}<span class="cell-note">>65%：${p.smurf_matches??0}场</span></td><td>${metricValue(p,'damage',number(p.averages?.damage_per10,0),'伤害/10分')}</td><td>${metricValue(p,'survival',number(p.averages?.survival_per10),'阵亡/10分')}</td><td>${weightBadge('stomp',(p.stomp_matches??0)+'场','碾压局降权场数')}</td></tr>`).join('');
   $('details').innerHTML=report.players.map((player,index)=>playerDetails(player,competitive,index)).join('');
+  refreshMatchQueryButtons();
 }
 document.addEventListener('wheel', event => {
   if (event.ctrlKey || event.metaKey) return;

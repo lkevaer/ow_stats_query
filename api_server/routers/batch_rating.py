@@ -9,7 +9,7 @@ from ..batch_rating.ocr import recognize_image
 from ..batch_rating.scoring import scoring_rules
 from ..batch_rating.service import BatchRatingService, QueryFailure
 from ..feature_flags import require_ocr_enabled
-from ..security import admit_heavy, request_owner, run_ocr
+from ..security import admit_rating_query, request_owner, run_ocr
 from .utils import get_app_state, require_account_ready
 
 router = APIRouter(prefix="/api/batch-rating", tags=["batch-rating"])
@@ -46,10 +46,9 @@ async def _query(mode, body, response, state, request):
             prepared = await worker.prepare(body.battletags, body.image_base64, full_match=body.full_match)
         owner = request_owner(request)
         job = worker.reuse(mode, prepared, owner)
+        admit_rating_query(request, full_match=body.full_match)
         if job is None:
             snapshots = await worker.fresh_snapshots(mode, prepared["battletags"])
-            if snapshots is None and not worker.is_pending(mode, prepared):
-                admit_heavy(request)
             job = worker.start(mode, prepared, owner=owner, snapshots=snapshots)
         if body.wait:
             import asyncio

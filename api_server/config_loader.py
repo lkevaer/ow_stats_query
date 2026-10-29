@@ -123,6 +123,9 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Dict[str, Any]:
         ("OW_RATE_HEAVY_IP_PER_MIN", "heavy_queries_per_ip_per_minute", 3),
         ("OW_RATE_BROWSER_COOLDOWN_SEC", "heavy_browser_cooldown_seconds", 30),
         ("OW_RATE_OCR_IP_PER_MIN", "ocr_per_ip_per_minute", 6),
+        ("OW_RATE_RATING_REQUESTS", "rating_queries_per_window", 2),
+        ("OW_RATE_RATING_WINDOW_SEC", "rating_window_seconds", 10),
+        ("OW_RATE_FULL_MATCH_COOLDOWN_SEC", "full_match_cooldown_seconds", 60),
     ):
         env_val = os.getenv(k_env)
         if env_val is not None and env_val.strip():
