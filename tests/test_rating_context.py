@@ -51,12 +51,13 @@ class DeathContextTests(unittest.TestCase):
         self.assertLessEqual(result["metrics"]["survival"]["points"], 36)
         self.assertFalse(any(a["reason"] == "辅助低阵亡" for a in result["adjustments"]))
 
-    def test_enemy_death_advantage_waives_only_single_death_highest_premium(self):
+    def test_single_death_highest_premium_waiver_depends_only_on_teammates(self):
         even = score(full_match(enemy_deaths=5))
         favorable = score(full_match(enemy_deaths=9))
         self.assertFalse(favorable["is_stomp"])
         self.assertTrue(favorable["death_context"]["enemy_deaths_clearly_higher"])
-        self.assertGreater(death_penalty(even) - death_penalty(favorable), .2)
+        self.assertEqual(death_penalty(even), death_penalty(favorable))
+        self.assertEqual(even["score"], favorable["score"])
         self.assertGreater(death_penalty(favorable), 0)
         self.assertTrue(any("免除" in w for w in favorable["warnings"]))
         two_extra = score(full_match(deaths=(7, 5, 5, 5, 5), enemy_deaths=10))
@@ -314,16 +315,18 @@ class AggregateReferenceTests(unittest.TestCase):
         below = aggregate_player("me#1234", [item,high], fetched=2, errors=[])
         self.assertEqual(below["score"], below["match_average"])
 
-    def test_zero_deaths_display_perfect_without_json_infinity_and_zero_zero_is_unknown(self):
+    def test_zero_deaths_use_one_as_denominator_and_zero_zero_is_zero(self):
         item = score(match())
         item["stats"].update(kill=12, death=0)
         result = aggregate_player("me#1234", [item], fetched=1, errors=[])
-        self.assertTrue(result["kd_perfect"])
-        self.assertIsNone(result["kd"])
+        self.assertFalse(result["kd_perfect"])
+        self.assertEqual(result["kd"], 12)
+        self.assertEqual(result["kd_deaths_used"], 1)
+        self.assertEqual(result["total_deaths"], 0)
         item["stats"]["kill"] = 0
         result = aggregate_player("me#1234", [item], fetched=1, errors=[])
         self.assertFalse(result["kd_perfect"])
-        self.assertIsNone(result["kd"])
+        self.assertEqual(result["kd"], 0)
         self.assertEqual(result["summary_adjustments"], [])
 
     def test_high_fleta_losses_reduce_the_small_win_rate_penalty(self):

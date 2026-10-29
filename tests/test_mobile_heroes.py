@@ -100,7 +100,7 @@ class MobileHeroTests(unittest.TestCase):
                 self.assertLessEqual(result["score"], 100)
 
     def test_new_rules_are_versioned_and_not_announced_in_frontend(self):
-        self.assertEqual(VERSION, "team-relative-2026s5-v9")
+        self.assertEqual(VERSION, "team-relative-2026s5-v10")
         static = Path(__file__).resolve().parents[1] / "api_server/static"
         for name in ["batch_rating.html", "batch_rating.js", "batch_rating.css"]:
             text = (static / name).read_text(encoding="utf-8")

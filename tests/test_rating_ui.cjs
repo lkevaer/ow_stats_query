@@ -27,6 +27,56 @@ const rank={known:true,label:'黄金3',icon:'https://example.com/gold.png',role_
 const match={begin_ts:1792227400000,seconds:600,hero:'测试',role:'dps',role_label:'输出',map_name:'测试地图',metrics:{},stats:{},adjustments:[],warnings:[],rank,score:65,grade:'B',outcome_label:'胜',sample_weight:1,duration_weight:1};
 const player={battletag:'Example#1234',tier:'中等马',score:65,grade:'B',rated_matches:12,status:'complete',primary_role:'dps',matches:[match,match],errors:[],averages:{},latest_rank:rank};
 
+test('empty rating reports show maintenance advice and clear it on the next valid report',async()=>{
+  const view=ui();
+  const empty={...player,score:null,grade:null,matches:[],rated_matches:0};
+  const report={mode:'competitive',mode_label:'竞技',players:[empty],summary:{requested_players:1,complete_players:0,rated_matches:0}};
+  view.context.render(report);
+  assert.match(view.element('emptyReportNotice').textContent,/网易大神搜索接口维护中或服务器异常.*建议部署到本地查询/);
+  assert.equal(view.element('emptyReportNotice').classList.contains('hidden'),false);
+  assert.match(view.element('details').innerHTML,/建议部署到本地查询/);
+  view.context.fetch=async()=>({ok:true,json:async()=>({success:true,data:{status:'done',progress:100,result:report}})});
+  await view.context.poll('a'.repeat(32));
+  assert.match(view.element('status').textContent,/建议部署到本地查询/);
+  assert.match(view.element('status').className,/error/);
+  view.context.render({...report,players:[player]});
+  assert.equal(view.element('emptyReportNotice').textContent,'');
+  assert.equal(view.element('emptyReportNotice').classList.contains('hidden'),true);
+});
+
+test('successful null responses have actionable advice while HTTP errors keep their cause',async()=>{
+  const {context}=ui();
+  for(const payload of [null,{success:true,data:null},{success:true,data:{}},{success:true,data:[]}]){
+    context.fetch=async()=>({ok:true,json:async()=>payload});
+    await assert.rejects(()=>context.api('/api/batch-rating/competitive'),/建议部署到本地查询/);
+  }
+  context.fetch=async()=>({ok:false,status:422,json:async()=>({success:false,detail:'无效ID'})});
+  await assert.rejects(()=>context.api('/api/batch-rating/competitive'),/无效ID/);
+  assert.throws(()=>context.render(null),/建议部署到本地查询/);
+});
+
+test('BOT is an independent gray badge on match rows and is counted without labeling mixed history',()=>{
+  const {context}=ui();
+  const bot={...match,score:20,grade:'D',is_bot:true,is_mvp:true};
+  assert.match(context.matchRow(bot),/highlight-bot/);
+  assert.match(context.scoreMarkup(bot),/grade-d/);
+  assert.match(context.scoreMarkup(bot),/class="pill bot-badge"[^>]*>BOT/);
+  const mixed=context.playerDetails({...player,bot_matches:1,matches:[bot,match]});
+  assert.match(mixed,/完整对局辅助0伤害：1场/);
+  assert.match(context.matchPlayerRows({...match,match_details:{other_players:[bot]}},'Example#1234',false),/bot-badge/);
+  assert.doesNotMatch(context.scoreMarkup({...player,bot_matches:1}),/bot-badge/);
+});
+
+test('zero death KD stays finite and visible while original death remains zero',()=>{
+  const {context}=ui();
+  for(const kills of [0,1,7,12]){
+    const row={...match,kd_perfect:true,stats:{kill:kills,death:0}};
+    assert.equal(context.kdLabel(row),kills.toFixed(2));
+    assert.equal(context.tableValue(row,'kd'),kills);
+    assert.doesNotMatch(context.performanceCells(row),/∞/);
+  }
+});
+
 test('match query cooldown survives reload and blocks only match actions for one minute',async()=>{
   const view=ui();
   const RealDate=vm.runInContext('Date',view.context);
@@ -262,9 +312,10 @@ test('party badges use recorded labels and do not assume solo when unknown',()=>
 
 test('KD, new SMURF threshold and aggregate reference corrections appear in details',()=>{
   const {context}=ui();
-  const html=context.playerDetails({...player,kd_perfect:true,smurf_matches:7,match_average:60,summary_adjustments:[{points:18,reason:'SMURF专项加分'}]});
+  const html=context.playerDetails({...player,kd:12,total_kills:12,total_deaths:0,smurf_matches:7,match_average:60,summary_adjustments:[{points:18,reason:'SMURF专项加分'}]});
   assert.match(html,/Fleta>65%：7\/12场 · 7场为SMURF/);
-  assert.match(html,/KD ∞/);
+  assert.match(html,/KD 12.00/);
+  assert.doesNotMatch(html,/∞/);
   assert.match(html,/SMURF专项加分/);
   assert.doesNotMatch(html,/Fleta≥100%/);
 });
@@ -374,11 +425,11 @@ test('wheel remains native on page margins, small tables and browser zoom',()=>{
   }
 });
 
-test('sorting handles all requested metrics, infinity, missing values and stable ties without mutating input',()=>{
+test('sorting handles finite zero-death KD, missing values and stable ties without mutating input',()=>{
   const {context}=ui();
   const rows=[
     {...match,id:'low',score:20,kd:2,final_blow_share:.1,fleta:.2,sample_weight:.8,stats:{kill:4,assist:1,death:2,heroDamage:2000,cure:100}},
-    {...match,id:'high',score:90,kd:5,final_blow_share:.4,fleta:.8,sample_weight:1.2,stats:{kill:10,assist:6,death:5,heroDamage:8000,cure:900}},
+    {...match,id:'high',score:90,kd:5,final_blow_share:.4,fleta:.8,sample_weight:1.2,stats:{kill:25,assist:6,death:5,heroDamage:8000,cure:900}},
     {...match,id:'missing',score:null,kd:null,final_blow_share:null,fleta:null,sample_weight:null,stats:{}},
   ];
   for(const key of ['score','final_blow_share','fleta','kill','assist','death','kd','damage','healing','sample_weight']){
@@ -386,7 +437,7 @@ test('sorting handles all requested metrics, infinity, missing values and stable
     assert.deepEqual(Array.from(context.sortedRows(rows,{key,descending:false}),row=>row.id),['low','high','missing'],key);
   }
   assert.deepEqual(rows.map(row=>row.id),['low','high','missing']);
-  assert.deepEqual(Array.from(context.sortedRows([{id:'perfect',kd_perfect:true},{id:'finite',kd:100},{id:'unknown',kd:null}],{key:'kd',descending:true}),row=>row.id),['perfect','finite','unknown']);
+  assert.deepEqual(Array.from(context.sortedRows([{id:'zero-death',stats:{kill:7,death:0}},{id:'finite',kd:100},{id:'unknown',kd:null}],{key:'kd',descending:true}),row=>row.id),['finite','zero-death','unknown']);
   assert.deepEqual(Array.from(context.sortedRows([{id:'first',score:50},{id:'second',score:50}],{key:'score',descending:true}),row=>row.id),['first','second']);
   assert.equal(context.tableValue({stats:{heroDamage:3000},seconds:300},'damage'),6000);
   assert.equal(context.nextTableSort(null,'score').descending,true);

@@ -62,7 +62,7 @@ def support_survival(death: float, others: list[dict], seconds: float, context: 
         relative += min(2., (median - 5) * .3)
     # Avoid a fixed five-point surcharge for being just one death higher.
     premium = 0.
-    waived = bool(context["enemy_deaths_clearly_higher"] and 0 < excess <= 1 and death - max(values) <= 1)
+    waived = bool(0 < excess <= 1 and death - max(values) <= 1)
     if death > max(values) and death >= 6 and not context["low_team_deaths"] and not waived:
         premium = min(2.5, max(0., excess_rate - .5) * .8) * context["sensitivity"]
     evidence = min(
@@ -77,9 +77,9 @@ def support_survival(death: float, others: list[dict], seconds: float, context: 
 
 def kd_stats(kills: float | None, deaths: float | None) -> dict:
     if kills is None or deaths is None:
-        return {"kd": None, "kd_perfect": False}
-    return {"kd": round(kills / deaths, 4) if deaths > 0 else None,
-            "kd_perfect": deaths == 0 and kills > 0}
+        return {"kd": None, "kd_perfect": False, "zero_deaths": False, "kd_deaths_used": None}
+    return {"kd": round(kills / max(1., deaths), 4), "kd_perfect": False,
+            "zero_deaths": deaths == 0, "kd_deaths_used": max(1., deaths)}
 
 
 def duration_weight(seconds: float) -> float:

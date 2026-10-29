@@ -7,8 +7,9 @@ from .rank import match_rank
 from .ocr_candidates import normalize_tags
 from .context import death_context, kd_stats, match_weights, numeric, party_info, support_survival, survival_points
 from .hero_profiles import metric_weights, mobile_dps_profile, soften_mobile_penalty
+from .match_policy import CONTRIBUTION_NOTICE, EMPTY_QUERY_NOTICE, completed_scoreboard, compress_positive_adjustments, zero_death_bonus
 
-VERSION = "team-relative-2026s5-v9"
+VERSION = "team-relative-2026s5-v10"
 ROLE_LABELS = {"tank": "坦克", "dps": "输出", "support": "辅助"}
 WEIGHTS = {
     "tank": {"damage": .30, "final_blows": .27, "survival": .23, "eliminations": .10, "final_blow_share": .08, "mitigation": .02},
@@ -65,8 +66,9 @@ def _identity_matches(player: dict, *, customer_token: str, bnet_id: str, battle
                 or str(player.get("name") or player.get("battletag") or "").strip() == battletag)
 
 
-def stomp_weight(teams: list[list[dict]]) -> tuple[float, str]:
+def stomp_weight(teams: list[list[dict]], *, winner: int | None = None) -> tuple[float, str]:
     """Apply the same evidence discount to the winning and losing sides."""
+    candidates = []
     for team in teams:
         if len(team) < 3:
             continue
@@ -74,21 +76,25 @@ def stomp_weight(teams: list[list[dict]]) -> tuple[float, str]:
         if any(k is None or d is None for k, _, d in rows):
             continue
         if all(k == 0 and a == 0 for k, a, _ in rows) and sum(d for _, _, d in rows) >= len(team) * 2:
-            return .25, "一方全队0击杀0助攻，碾压局降权"
+            candidates.append((.25, "一方全队0击杀0助攻，碾压局降权"))
         if all(k < d for k, _, d in rows) and sum(d for _, _, d in rows) >= len(team) * 2:
-            return .45, "一方全队负战绩，碾压局降权"
+            candidates.append((.45, "一方全队负战绩，碾压局降权"))
     if len(teams) == 2 and all(len(t) >= 3 for t in teams):
         totals = []
         for team in teams:
             fields = [[numeric(p, key) for p in team] for key in ("finalHit", "death")]
             if any(v is None for values in fields for v in values):
-                return 1., ""
+                return min(candidates, key=lambda item: item[0]) if candidates else (1., "")
             totals.append(tuple(sum(values) for values in fields))
         for i, (finals, deaths) in enumerate(totals):
             other_finals, other_deaths = totals[1 - i]
             if deaths >= len(teams[i]) * 3 and other_finals >= 10 and finals <= other_finals * .2 and other_deaths <= deaths * .35:
-                return .40, "双方击杀与阵亡差距悬殊，碾压局降权"
-    return 1., ""
+                candidates.append((.40, "双方击杀与阵亡差距悬殊，碾压局降权"))
+        if winner in {0, 1} and len(teams[0]) in {5, 6} and len(teams[0]) == len(teams[1]):
+            winning, losing = totals[winner][0], totals[1-winner][0]
+            if winning > 0 and losing <= winning * .25:
+                candidates.append((.40, "败方最后一击不超过胜方四分之一，碾压局降权"))
+    return min(candidates, key=lambda item: item[0]) if candidates else (1., "")
 
 
 def _asset_url(value) -> str | None:
@@ -186,15 +192,17 @@ def _score_player(data: dict, source: dict, *, own: dict, team: list[dict], oppo
         elif penalty > 0:
             adjust(-_displayed_penalty_delta(base, penalty), "辅助阵亡偏多" if not context["low_team_deaths"] else "辅助阵亡略多，低阵亡局减轻扣分")
         if waived and not support_exempt:
-            warnings.append("对手阵亡明显更多，仅多阵亡一次，免除辅助最高阵亡额外扣分")
+            warnings.append("相对队友仅多阵亡一次，免除辅助最高阵亡额外扣分")
         if not high_death and all(x is not None for x in other_deaths) and death <= min(other_deaths) and death < max(other_deaths):
             adjust(4, "辅助低阵亡")
-        if share is not None and share > 0 and (not high_death or share >= .20):
+        if share is not None and share > 0 and (not high_death or fleta >= .35):
             curve = min(42, 2 * share + 90 * max(0, share - .15) ** 2)
             if fleta >= .50:
                 adjust(min(42., 14. + curve), "辅助Fleta≥50%，高权重进攻加分")
             elif fleta >= .40:
                 adjust(min(42., 8. + curve), "辅助Fleta≥40%，较高权重进攻加分")
+            elif fleta >= .35:
+                adjust(5. + curve, "辅助Fleta≥35%，进攻贡献加分")
             else:
                 adjust(curve, "辅助最后一击占比递增加分")
     if share is not None and share >= .50:
@@ -202,6 +210,9 @@ def _score_player(data: dict, source: dict, *, own: dict, team: list[dict], oppo
 
     outcome = _outcome(data, source, side)
     kills, death = numeric(own, "kill"), numeric(own, "death")
+    no_death_reward = zero_death_bonus(own, others, seconds)
+    if no_death_reward:
+        adjust(no_death_reward, "零阵亡，结合队友阵亡量给予较高权重生存加分")
     solo_positive = bool(kills is not None and kills > death and all(
         numeric(p, "kill") is not None and numeric(p, "death") is not None
         and numeric(p, "kill") < numeric(p, "death") for p in others))
@@ -212,6 +223,7 @@ def _score_player(data: dict, source: dict, *, own: dict, team: list[dict], oppo
         if relief > 0:
             adjust(relief, "败方高Fleta且队内唯一正战绩，减轻生存扣分" if solo_positive else "败方高Fleta，减轻生存扣分")
 
+    bonus_scale = compress_positive_adjustments(adjustments, outcome)
     factor = HERO_SCORE_FACTORS.get(hero_guid, HERO_SCORE_FACTORS.get(str(hero.get("name", "")).lower(), 1.))
     score = round(calibrate_score(base + sum(a["points"] for a in adjustments)) * factor, 2)
     # Keep displayed contributions in the same calibrated score units.
@@ -224,6 +236,17 @@ def _score_player(data: dict, source: dict, *, own: dict, team: list[dict], oppo
         after = running + adjustment["points"]
         adjustment["points"] = round((calibrate_score(after) - calibrate_score(running)) * factor, 3)
         running = after
+    ceiling = 95. if outcome == -1 else 99.
+    bounded = min(score, ceiling)
+    if bounded < score:
+        adjustments.append({"points": round(bounded-score, 3), "reason": "败方单局评分保守上限" if outcome == -1 else "单局评分保守上限"})
+        score = bounded
+    complete_game = completed_scoreboard(data, own, team, opponents, seconds) and coverage >= .999
+    is_bot = bool(role == "support" and numeric(own, "heroDamage") == 0 and complete_game)
+    if is_bot:
+        lowered = round(min(25., score * .35), 2)
+        adjustments.append({"points": round(lowered-score, 3), "reason": "完整对局辅助0伤害，BOT最高权重下调"})
+        score = lowered
     map_guid = str(data.get("mapGuid") or source.get("mapGuid") or "")
     map_info = (maps or {}).get(map_guid, {})
     weights = match_weights(team, opponents, seconds, stomp)
@@ -234,6 +257,9 @@ def _score_player(data: dict, source: dict, *, own: dict, team: list[dict], oppo
         "map_guid": map_guid, "map_name": map_info.get("name") or data.get("mapName") or source.get("mapName") or map_guid or "未知地图",
         "map_icon": _asset_url(map_info.get("icon")), "role": role, "role_label": ROLE_LABELS[role],
         "score": score, "grade": grade(score), "base_score": round(calibrate_score(base) * factor, 2),
+        "score_ceiling": ceiling, "positive_bonus_scale": round(bonus_scale, 6),
+        "is_bot": is_bot, "completed_match": complete_game,
+        "bot_reason": "完整对局辅助0伤害" if is_bot else "",
         "final_blow_share": round(share, 6) if share is not None else None,
         "fleta": round(fleta, 6) if fleta is not None else None,
         "team_final_blows": total_finals if share is not None else None, "team_size": len(team),
@@ -298,7 +324,9 @@ def score_match(data: dict, source: dict, *, customer_token: str, bnet_id: str, 
             own, side = matching[0], index
     if own is None:
         raise ValueError("对局详情没有找到该玩家，未计分")
-    stomp, reason = stomp_weight(teams)
+    recorded = data.get("matchRet")
+    winner = None if isinstance(recorded, bool) else 0 if str(recorded) == "1" else 1 if str(recorded) in {"-1", "2"} else None
+    stomp, reason = stomp_weight(teams, winner=winner)
 
     def calculate(player, index):
         # The list snapshot belongs to the queried player, not every participant.
@@ -348,7 +376,8 @@ def aggregate_player(battletag: str, matches: list[dict], *, fetched: int, error
     matches = sorted(matches, key=lambda m: float(m.get("begin_ts") or 0), reverse=True)[:12]
     base = {"battletag": battletag, "requested_matches": 12, "fetched_matches": fetched, "rated_matches": len(matches), "matches": matches, "errors": errors}
     if not matches:
-        return {**base, "status": "unrated", "score": None, "grade": None, "tier": "未评级", "confidence": 0, "rank": None}
+        return {**base, "status": "unrated", "score": None, "grade": None, "tier": "未评级", "confidence": 0, "rank": None,
+                "sample_note": EMPTY_QUERY_NOTICE, "empty_notice": EMPTY_QUERY_NOTICE}
     weight = sum(m["sample_weight"] for m in matches)
     match_average = sum(m["score"] * m["sample_weight"] for m in matches) / weight
     roles = Counter(m["role"] for m in matches)
@@ -382,7 +411,7 @@ def aggregate_player(battletag: str, matches: list[dict], *, fetched: int, error
     kills = sum(numeric(m["stats"], "kill") for m in kd_matches)
     deaths = sum(numeric(m["stats"], "death") for m in kd_matches)
     kd = kd_stats(kills, deaths) if kd_matches else kd_stats(None, None)
-    high_kd_count = sum((k := numeric(m["stats"], "kill")) > 0 and k >= 7 * numeric(m["stats"], "death") for m in kd_matches)
+    high_kd_count = sum(numeric(m["stats"], "kill") >= 7 * max(1., numeric(m["stats"], "death")) for m in kd_matches)
     consistent_kd = high_kd_count >= 9
     if consistent_kd:
         summary_adjustments.append({"points": round(8. + (high_kd_count - 9) / 3, 3), "reason": "近12场至少9场KD≥7，持续高KD加分"})
@@ -390,11 +419,17 @@ def aggregate_player(battletag: str, matches: list[dict], *, fetched: int, error
         kd_points = 1.5 if kd["kd_perfect"] else min(1.5, .75 + math.log2(kd["kd"] / 10) * .25)
         summary_adjustments.append({"points": round(kd_points * len(kd_matches) / 12, 3), "reason": "KD≥10，小幅加分"})
     score = round(max(0, min(100, match_average + sum(a["points"] for a in summary_adjustments))), 2)
+    bot_matches = sum(bool(m.get("is_bot")) for m in matches)
+    all_bot = bot_matches == len(matches)
+    if all_bot and score > 25:
+        summary_adjustments.append({"points": round(25-score, 3), "reason": "全部有效样本均为BOT，最高权重下调"})
+        score = 25.
     ranked_matches=sorted((m for m in matches if (m.get("rank") or {}).get("known")),key=lambda m:float(m.get("begin_ts") or 0),reverse=True)
     latest_rank={**ranked_matches[0]["rank"],"role":ranked_matches[0]["role"],"role_label":ranked_matches[0]["role_label"],"match_begin_ts":ranked_matches[0]["begin_ts"]} if ranked_matches else None
     return {
         **base, "status": "complete" if len(matches) == 12 else "partial", "score": score,
         "grade": "SMURF" if smurf else grade(score), "score_grade": grade(score), "is_smurf": smurf,
+        "bot_matches": bot_matches, "is_bot": all_bot,
         "latest_rank":latest_rank,
         "match_average": round(match_average, 2), "summary_adjustments": summary_adjustments, **kd,
         "hot_streak": hot_streak, "hot_streak_threshold": 10,
@@ -468,20 +503,23 @@ def scoring_rules() -> dict:
         "reference": [
             "评分偏重最后一击与Fleta，T和C更容易获得高分；不按段位高低修正对局含金量。",
             "T兼顾伤害、生存和最后一击，占比达30%额外加分；C侧重伤害与最后一击，占比达40%额外加分；全位置占比达50%高权重加分。",
-            "辅助兼顾生存、治疗、伤害与助攻；Fleta达到40%给予较高权重进攻加分，达到50%给予高权重加分且不触发高阵亡惩罚，使用Fleta本身而非最后一击占比判断。",
-            "阵亡按时长、队内差距与双方整体阵亡量综合考量；全队低阵亡时所有位置降低扣分敏感度，辅助仅为全队最高不自动重扣。",
+            "辅助兼顾生存、治疗、伤害与助攻；Fleta达到35%增加进攻贡献加分，达到40%给予较高权重进攻加分，达到50%给予高权重加分且不触发高阵亡惩罚，使用Fleta本身而非最后一击占比判断。",
+            "阵亡按时长、队内差距与自家整体阵亡量综合考量；全队低阵亡时所有位置降低扣分敏感度，辅助仅为全队最高不自动重扣。",
             "辅助阵亡额外扣分采用温和递增，略高于队友不再叠加固定重扣；普通负荷通常不超过10分，仅局内时长归一化阵亡、相对差距、倍数与实际多出的阵亡都明显突出时，才逐步接近15分的展示上限。此项与生存基础贡献分开计算。",
-            "辅助Fleta未达到50%时，非碾压局中对手阵亡明显更多、辅助仅多阵亡一次免除最高阵亡额外扣分；全队高阵亡不能自动豁免辅助生存要求。",
+            "辅助Fleta未达到50%时，相对队友仅多阵亡一次免除最高阵亡额外扣分；全队高阵亡不能自动豁免辅助生存要求。",
+            "所有位置零阵亡且有有效贡献时给予较高权重生存加分，队友阵亡越多奖励越高，短局按时长缩减。完整已结束且不少于6.5分钟、双方完整名单和关键统计齐全的对局，辅助全场0伤害标记灰色BOT，评分最高25分并作最高权重下调；缺失伤害、短局、明确中退或参与时长不足不触发。",
             "败方高Fleta减轻生存扣分；队友全为负战绩而本人正战绩时进一步照顾，但不无限抵消高阵亡。",
             "最近12场至少7场Fleta严格大于65%标记SMURF，等于65%不计入，给予综合评分中最高权重的专项加分；不足12场但已有7场达标也可确认，其余仍标记样本不足。",
-            "KD使用击杀/阵亡，综合KD达到10可小幅加分；近12场至少9场KD达到7时给予较高权重加分。有击杀且零阵亡记为∞，0击杀0阵亡不算高KD。",
+            "KD使用消灭÷max(阵亡,1)，零阵亡按1作分母，原始阵亡仍显示0。综合KD达到10可小幅加分；近12场至少9场KD达到7时给予较高权重加分，0消灭0阵亡不算高KD。",
             "一般胜率仅小幅参考，平局进入分母；完整近12场至少10胜时标记手感火热，并提高胜率加分权重。样本不足不推测完整12场胜率。",
             "当局完整十人评分最高者标记MVP，并列最高可同时获得；Fleta达到80%标记Carry，败方Fleta超过80%同时标记SVP；标记本身不额外加分。",
             "组队标记来自当局组队成员记录；缺失或异常时显示未知，不推测组队人数。",
-            "小于6.5分钟的对局适当降权，越短权重越低；超过15分钟的对局小幅增权，有上限。双方最后一击总数几乎持平且数量充足时较明显增权；数据缺失或双方为零时不推测。碾压局继续降权，多个因素共同影响最终对局权重。",
+            "小于6.5分钟的对局适当降权，越短权重越低；超过15分钟的对局小幅增权，有上限。双方最后一击总数几乎持平且数量充足时较明显增权；数据缺失或双方为零时不推测。败方最后一击不超过胜方四分之一也视为碾压，对双方同等降权；多个因素共同影响最终对局权重。",
             "综合Fleta按最后一击总数汇总；综合分按对局权重汇总再参考持续高Fleta、胜率和KD。关键数据缺失不计分。",
-            "评分范围0至100；100分为SSS，S从90分、A从80分、B从70分、C从60分起，其余D。SMURF为额外表现等级；上中下等马仅是本次名单内的相对排序，同分同档。只有一位有效评分玩家时不分上下等马，提示输入更多ID以比较。",
+            "单局额外加分递减，胜方/平局单局最高99分、败方最高95分，不产生单局100/SSS。综合评分范围0至100；100分为SSS，S从90分、A从80分、B从70分、C从60分起，其余D。A级表示队内贡献较高；SMURF为额外表现等级。上中下等马仅是本次名单内的相对排序，同分同档。只有一位有效评分玩家时不分上下等马，提示输入更多ID以比较。",
         ],
         "relative_notice": RELATIVE_NOTICE,
+        "contribution_notice": CONTRIBUTION_NOTICE,
+        "empty_notice": EMPTY_QUERY_NOTICE,
         "disclaimer": "自定义队内表现评分，不是网易官方分数，不代表段位；同分同档，无数据不评级",
     }

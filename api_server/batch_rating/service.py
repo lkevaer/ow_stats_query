@@ -23,6 +23,7 @@ from ..work_queue import work_queue, WorkQueue
 from .ocr import normalize_tags, recognize_image
 from .player_cache import CLEANUP_SECONDS, FRESH_SECONDS, RETAIN_SECONDS, PlayerDataCache, PlayerSnapshot
 from .circuit import UpstreamCircuit
+from .match_policy import CONTRIBUTION_NOTICE, EMPTY_QUERY_NOTICE
 from .scoring import VERSION, RELATIVE_NOTICE, SCOPE_NOTICE, aggregate_player, grouped_summary, rank_players, score_match
 
 MODE_MAP = {"leisure": "leisure", "competitive": "sport"}
@@ -402,7 +403,7 @@ class BatchRatingService:
         player = aggregate_player(battletag, rated, fetched=data["fetched"], errors=errors)
         player.update(resolved_battletag=identity["full_id"], seasons_scanned=data["seasons_scanned"])
         if not data["fetched"]:
-            player["sample_note"] = "没有查到该模式的公开对局，未评级；未混入其他模式"
+            player["sample_note"] = "没有查到该模式的公开对局，未评级；未混入其他模式。" + EMPTY_QUERY_NOTICE
         return player
 
     async def _load_player(self, key, battletag, mode, heroes, maps, ranks, progress):
@@ -446,12 +447,16 @@ class BatchRatingService:
                 REGISTRY.counter("ow_rating_player_cache_total", {"result": "stale"}).inc()
                 previous["data_cache"] = self._cache_metadata(cached, "stale_cache", str(exc))
                 return previous
-            return {**aggregate_player(battletag, [], fetched=0, errors=[]), "sample_note": str(exc)}
+            message = str(exc)
+            return {**aggregate_player(battletag, [], fetched=0, errors=[]),
+                    "sample_note": message if EMPTY_QUERY_NOTICE in message else message + "。" + EMPTY_QUERY_NOTICE}
 
     async def _fetch_player(self, battletag, mode, progress, heroes, maps, ranks):
         progress(f"正在解析 {battletag}")
         search = await self._request(self.state.bnet_search.search, battletag, render=False)
-        identity = search.result
+        identity = getattr(search, "result", None)
+        if identity is None:
+            raise QueryFailure(EMPTY_QUERY_NOTICE)
         customer_token = str(identity.customer_token or "")
         if not customer_token:
             raise QueryFailure("未找到该 BattleTag，或账号未公开战绩")
@@ -610,5 +615,6 @@ class BatchRatingService:
         return {"mode": mode, "mode_label": MODE_NAMES[mode], "matches_per_player": MATCH_LIMIT,
                 "generated_at": datetime.now().astimezone().isoformat(), "players": ranked, "summary_text": grouped_summary(ranked),
                 "recognized": {k: v for k, v in prepared.items() if not k.startswith("_")}, "scoring_version": VERSION, "relative_notice": RELATIVE_NOTICE, "scope_notice":SCOPE_NOTICE, "hero_registry_count": len(heroes),
+                "contribution_notice": CONTRIBUTION_NOTICE, "empty_notice": EMPTY_QUERY_NOTICE if not any(p["score"] is not None for p in ranked) else "",
                 "summary": {"requested_players": len(tags), "rated_players": sum(p["score"] is not None for p in results),
                             "complete_players": sum(p["rated_matches"] == 12 for p in results), "rated_matches": sum(p["rated_matches"] for p in results)}}

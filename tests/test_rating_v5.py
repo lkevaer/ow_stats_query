@@ -181,10 +181,13 @@ class RecentFormTests(unittest.TestCase):
                 self.assertGreater(result["score"] - previous, 6)
             previous = result["score"]
 
-    def test_zero_zero_excluded_positive_zero_is_infinite_and_qualifies(self):
+    def test_zero_deaths_still_require_seven_eliminations_for_high_kd(self):
         items = self.items()
         for row in items[:9]:
             row["stats"].update(kill=1, death=0)
+        self.assertEqual(aggregate(items)["high_kd_matches"], 0)
+        for row in items[:9]:
+            row["stats"]["kill"] = 7
         self.assertEqual(aggregate(items)["high_kd_matches"], 9)
         items[0]["stats"]["kill"] = 0
         result = aggregate(items)
