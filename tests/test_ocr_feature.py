@@ -35,7 +35,7 @@ class OCRFeatureTests(unittest.TestCase):
         self.assertIn('id="imageInput"', default)
         self.assertIn('/static/batch_rating_ocr.js', default)
         manual = rating_page(ocr_enabled=False).body.decode()
-        for removed in ['id="imageInput"', 'id="cropEditor"', '/static/batch_rating_ocr.js', '/static/ocr_crop.js', '上传或粘贴截图', '截图识别']:
+        for removed in ['id="imageInput"', 'id="cropEditor"', '/static/batch_rating_ocr.js', '/static/ocr_crop.js', '上传或粘贴截图', '截图识别', '上传账号截图', '2 · 输入或选择玩家']:
             self.assertNotIn(removed, manual)
         for retained in ['id="tags"', 'id="leisure"', 'id="competitive"', 'id="selfBinding"', 'inputs-manual-only']:
             self.assertIn(retained, manual)

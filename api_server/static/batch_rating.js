@@ -49,7 +49,7 @@ function updateFavoriteSelection(){
   $('queryCount').classList.toggle('over-limit',count>10||invalid);
   $('clearFavoriteSelection').disabled=!favoriteState.selected.length;
   if(!querying&&!polling&&!currentReport){
-    status(invalid?'请检查完整战网ID。':count>10?'合并去重后最多查询10人，请减少输入或取消部分选择。':count?'已准备查询 '+count+' 位玩家，选择竞技或休闲即可开始。':'输入战网ID、选择常用ID，或上传账号截图。',invalid||count>10);
+    status(invalid?'请检查完整战网ID。':count>10?'合并去重后最多查询10人，请减少输入或取消部分选择。':count?'已准备查询 '+count+' 位玩家，选择竞技或休闲即可开始。':$('imageInput')?'输入战网ID、选择常用ID，或上传账号截图。':'输入战网ID或选择常用ID。',invalid||count>10);
   }
 }
 function renderFavorites(){
@@ -117,7 +117,7 @@ function metricHint(row,key) {
   if(component){
     const share=key==='final_blow_share',reference=share?pct(component.reference):number(component.reference_per10??component.reference,2)+(component.reference_per10!=null?' /10分钟':'');
     const value=share?pct(component.value):number(component.per10??component.value,2)+(component.per10!=null?' /10分钟':'');
-    text=(metricNames[key]||'该项')+'按角色和队内参考比较'+(key==='survival'?'，阵亡更少通常更好':'，表现更高通常更好')+'。本人 '+value+'；'+(component.comparison||'参考数据')+'：'+reference+'；角色内有效权重 '+pct(component.weight)+'；相对参考贡献 '+signed(component.contribution)+' 分。';
+    text=(metricNames[key]||'该项')+'按角色和队内参考比较'+(key==='survival'?'，阵亡更少通常更好':'，表现更高通常更好')+'。本人 '+value+'；'+(component.comparison||'参考数据')+'：'+reference+'；相对参考贡献 '+signed(component.contribution)+' 分。';
     if(share)text+=' '+rules.final_blow_share;
     if(key==='survival'){
       const allowance=row.role==='support'?4:6;

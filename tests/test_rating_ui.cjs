@@ -4,7 +4,7 @@ const path=require('node:path');
 const test=require('node:test');
 const assert=require('node:assert/strict');
 
-function ui(savedCookie=''){
+function ui(savedCookie='',ocrEnabled=true){
   const elements=new Map();
   const listeners=new Map(),storage=new Map(),requests=[];
   const element=id=>{
@@ -14,7 +14,7 @@ function ui(savedCookie=''){
     }
     return elements.get(id);
   };
-  const document={getElementById:element,addEventListener:(name,callback)=>listeners.set(name,callback)};
+  const document={getElementById:id=>id==='imageInput'&&!ocrEnabled?null:element(id),addEventListener:(name,callback)=>listeners.set(name,callback)};
   let cookie=savedCookie;
   Object.defineProperty(document,'cookie',{get:()=>cookie,set:value=>{cookie=value.includes('Max-Age=0')?'':value.split(';')[0];}});
   const context=vm.createContext({document,location:{protocol:'https:',search:''},URLSearchParams,localStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},fetch:async(url,options)=>{requests.push({url,options});return{ok:true,json:async()=>url==='/health'?{api_key_required:false}:{success:true,data:options?.method==='POST'?{task_id:'test'}:{status:'done',progress:100,stage:'完成',result:{mode:'competitive',mode_label:'竞技',players:[player],summary:{requested_players:1,complete_players:1,rated_matches:12}}}}};},setTimeout:()=>{}});
@@ -26,6 +26,18 @@ function ui(savedCookie=''){
 const rank={known:true,label:'黄金3',icon:'https://example.com/gold.png',role_label:'输出'};
 const match={begin_ts:1792227400000,seconds:600,hero:'测试',role:'dps',role_label:'输出',map_name:'测试地图',metrics:{},stats:{},adjustments:[],warnings:[],rank,score:65,grade:'B',outcome_label:'胜',sample_weight:1,duration_weight:1};
 const player={battletag:'Example#1234',tier:'中等马',score:65,grade:'B',rated_matches:12,status:'complete',primary_role:'dps',matches:[match,match],errors:[],averages:{},latest_rank:rank};
+
+test('manual-only page never suggests uploading screenshots after input state updates',()=>{
+  const view=ui('',false);
+  assert.equal(view.element('status').textContent,'输入战网ID或选择常用ID。');
+  view.element('tags').value='Example#1234';
+  view.context.updateFavoriteSelection();
+  assert.match(view.element('status').textContent,/已准备查询 1 位玩家/);
+  view.element('tags').value='';
+  view.context.updateFavoriteSelection();
+  assert.equal(view.element('status').textContent,'输入战网ID或选择常用ID。');
+  assert.match(ui().element('status').textContent,/上传账号截图/);
+});
 
 test('cache age and failed refresh are visible and escaped, without changing old reports',()=>{
   const {context}=ui();
@@ -111,6 +123,7 @@ test('metric buttons show real contributions and exact threshold explanations wi
   const hint=context.metricHint(row,'survival');
   assert.match(hint,/全队参考：4.00 \/10分钟/);
   assert.match(hint,/-3.3 分/);
+  assert.doesNotMatch(hint,/角色内有效权重|40\.0%/);
   assert.match(hint,/阵亡参考扣分 -2.5分/);
   assert.match(hint,/比队友阵亡少也可能扣分/);
   assert.match(context.metricHint(row,'fleta'),/败方严格超过80%/);

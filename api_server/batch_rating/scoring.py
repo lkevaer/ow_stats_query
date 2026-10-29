@@ -6,8 +6,9 @@ import statistics
 from .rank import match_rank
 from .ocr_candidates import normalize_tags
 from .context import death_context, kd_stats, match_weights, numeric, party_info, support_survival, survival_points
+from .hero_profiles import metric_weights, mobile_dps_profile, soften_mobile_penalty
 
-VERSION = "team-relative-2026s5-v8"
+VERSION = "team-relative-2026s5-v9"
 ROLE_LABELS = {"tank": "坦克", "dps": "输出", "support": "辅助"}
 WEIGHTS = {
     "tank": {"damage": .30, "final_blows": .27, "survival": .23, "eliminations": .10, "final_blow_share": .08, "mitigation": .02},
@@ -107,6 +108,10 @@ def _score_player(data: dict, source: dict, *, own: dict, team: list[dict], oppo
     role = role_of(own, heroes)
     if role is None:
         raise ValueError("该英雄位置未知，未使用猜测的位置计分")
+    hero_guid = str(own.get("heroGuid") or own.get("heroId") or "")
+    hero = heroes.get(hero_guid) or {}
+    profile = mobile_dps_profile(hero_guid, hero, role)
+    effective_weights = metric_weights(WEIGHTS[role], profile)
     seconds = numeric(data, "gameTimeSec")
     if not seconds or seconds < 30:
         raise ValueError("对局时长缺失或不足 30 秒，未计分")
@@ -127,7 +132,7 @@ def _score_player(data: dict, source: dict, *, own: dict, team: list[dict], oppo
     support_exempt = role == "support" and fleta is not None and fleta >= .50
     role_weights = {"tank": 1., "dps": 1.2, "support": .45}
     expected_share = role_weights[role] / sum(role_weights.get(role_of(p, heroes), 1.) for p in team)
-    for metric, weight in WEIGHTS[role].items():
+    for metric, weight in effective_weights.items():
         if metric == "final_blow_share":
             if share is None:
                 warnings.append("全队最后一击缺失或总数为零，占比与Fleta不计")
@@ -153,11 +158,13 @@ def _score_player(data: dict, source: dict, *, own: dict, team: list[dict], oppo
             points = survival_points(points, value, seconds, role, context)
             if support_exempt:
                 points = max(60., points)
+        points = soften_mobile_penalty(points, metric, profile)
         components[metric] = {"value": round(value, 3), "per10": round(rate, 3), "reference": round(reference, 3),
                               "reference_per10": round(reference_rate, 3), "points": round(points, 3), "weight": weight, "comparison": comparison}
     available_weight = sum(c["weight"] for c in components.values())
+    coverage = available_weight / sum(effective_weights.values())
     required = {"survival", "healing", "damage"} if role == "support" else {"damage", "final_blows", "survival"}
-    if not required.issubset(components) or available_weight < .70:
+    if not required.issubset(components) or coverage < .70:
         raise ValueError("关键统计缺失，不能可靠评分")
     base = sum(c["points"] * c["weight"] for c in components.values()) / available_weight
     for component in components.values():
@@ -205,8 +212,6 @@ def _score_player(data: dict, source: dict, *, own: dict, team: list[dict], oppo
         if relief > 0:
             adjust(relief, "败方高Fleta且队内唯一正战绩，减轻生存扣分" if solo_positive else "败方高Fleta，减轻生存扣分")
 
-    hero_guid = str(own.get("heroGuid") or own.get("heroId") or "")
-    hero = heroes.get(hero_guid) or {}
     factor = HERO_SCORE_FACTORS.get(hero_guid, HERO_SCORE_FACTORS.get(str(hero.get("name", "")).lower(), 1.))
     score = round(calibrate_score(base + sum(a["points"] for a in adjustments)) * factor, 2)
     # Keep displayed contributions in the same calibrated score units.
@@ -240,7 +245,7 @@ def _score_player(data: dict, source: dict, *, own: dict, team: list[dict], oppo
         "is_svp": outcome == -1 and fleta is not None and fleta > .80,
         "metrics": components, "adjustments": adjustments, "warnings": warnings,
         "stats": {key: numeric(own, key) for key in FIELDS.values()},
-        "data_coverage": round(available_weight, 3), **weights,
+        "data_coverage": round(coverage, 3), **weights,
         "is_stomp": stomp < 1, "stomp_weight": stomp, "stomp_reason": stomp_reason,
     }
 
