@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
+from contextlib import nullcontext
 from datetime import datetime
 import json
 import logging
@@ -16,7 +17,7 @@ import hashlib
 from fastapi import HTTPException
 
 from ..query_audit import record_successful_ids
-from ..feature_flags import require_ocr_enabled
+from ..feature_flags import rating_no_queue, require_ocr_enabled
 from ..metrics import REGISTRY
 from ..work_queue import work_queue, WorkQueue
 from .ocr import normalize_tags, recognize_image
@@ -39,13 +40,15 @@ class BatchRatingService:
         self.state = state
         self.jobs: dict[str, dict] = {}
         self.running: dict[str, asyncio.Task] = {}
-        self.network = asyncio.Semaphore(2)
+        self.no_queue = rating_no_queue()
+        self.network = nullcontext() if self.no_queue else asyncio.Semaphore(2)
         self.batch_slots = asyncio.Semaphore(1)
         self.report_dir = Path(os.getenv("OW_RATING_REPORT_DIR") or Path(__file__).resolve().parents[2] / "data" / "batch_rating_reports")
         self.current_season = int(os.getenv("OW_RATING_CURRENT_SEASON", "25"))
         self.player_cache = PlayerDataCache()
         self.queue = work_queue(state)
-        self.cached_queue = WorkQueue(capacity=4, timeout=30)
+        self.rating_queue = WorkQueue(capacity=0, concurrency=0) if self.no_queue else self.queue
+        self.cached_queue = WorkQueue(capacity=0, concurrency=0, timeout=30) if self.no_queue else WorkQueue(capacity=4, timeout=30)
         self._cores: dict[tuple, dict] = {}
         self._waiters: dict[asyncio.Task, int] = {}
         self._player_interest: dict[str, int] = {}
@@ -78,6 +81,8 @@ class BatchRatingService:
 
     async def close(self):
         await self.cached_queue.close()
+        if self.rating_queue is not self.queue:
+            await self.rating_queue.close()
         tasks = list(set(self.running.values()) | set(self._player_tasks.values()) | set(self._detail_tasks.values()))
         if self._maintenance_task is not None:
             tasks.append(self._maintenance_task)
@@ -161,7 +166,7 @@ class BatchRatingService:
             existing = self.reuse(mode, prepared, owner)
             if existing:
                 return existing
-        if len(self.running) >= 16:
+        if not self.no_queue and len(self.running) >= 16:
             raise HTTPException(429, "查询队列已满，请稍后重试", headers={"Retry-After": "5"})
         core_key = self.core_key(mode, prepared)
         core = self._cores.get(core_key)
@@ -177,7 +182,7 @@ class BatchRatingService:
                 return await self.query(mode, clean, progress=lambda stage, pct, completed: core.update(
                     stage=stage, progress=round(pct, 1), completed_players=completed))
 
-            core["task"] = (self.cached_queue if snapshots is not None else self.queue).submit(compute)
+            core["task"] = (self.cached_queue if snapshots is not None else self.rating_queue).submit(compute)
             self._cores[core_key] = core
             def clear_core(done):
                 if self._cores.get(core_key) is core:
@@ -200,7 +205,7 @@ class BatchRatingService:
         result = {k: v for k, v in job.items() if not k.startswith("_")}
         if job["status"] in {"queued", "running"} and job.get("_core"):
             result.update({k: v for k, v in job["_core"].items() if k != "task"})
-        return {**result, "queue": self.queue.status()}
+        return {**result, "queue": self.rating_queue.status()}
 
     def get_job(self, key: str) -> dict | None:
         self._cleanup()

@@ -153,6 +153,8 @@ class RequestBodyLimit:
     def __init__(self, app, maximum=12 * 1024 * 1024, capacity=4):
         self.app, self.maximum = app, maximum
         self.capacity, self.active = capacity, 0
+        from .feature_flags import rating_no_queue
+        self.rating_no_queue = rating_no_queue()
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or scope["method"] not in {"POST", "PUT", "PATCH"}:
@@ -166,6 +168,8 @@ class RequestBodyLimit:
                 return await JSONResponse({"success": False, "error": "请求体过大"}, status_code=413)(scope, receive, send)
         except ValueError:
             return await JSONResponse({"success": False, "error": "无效的请求长度"}, status_code=400)(scope, receive, send)
+        if self.rating_no_queue and scope.get("path") in {"/api/batch-rating/competitive", "/api/batch-rating/leisure"}:
+            return await self._receive_body(scope, receive, send)
         if self.active >= self.capacity:
             return await JSONResponse({"success": False, "error": "服务繁忙，请稍后重试"}, status_code=503,
                                       headers={"Retry-After": "5"})(scope, receive, send)

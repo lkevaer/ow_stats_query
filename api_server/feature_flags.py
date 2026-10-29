@@ -2,8 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
 from fastapi import HTTPException
+
+
+def rating_no_queue() -> bool:
+    """Explicit deployment switch; normal installations keep bounded queues."""
+    return os.getenv("OW_RATING_NO_QUEUE", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def is_ocr_enabled(config: dict | None) -> bool:

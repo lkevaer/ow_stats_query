@@ -1,7 +1,8 @@
-"""One bounded scheduler for web queries, legacy jobs, streams and OCR."""
+"""Owned query scheduling; zero capacity/concurrency explicitly disables queueing."""
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext
 from fastapi import HTTPException
 
 
@@ -10,11 +11,11 @@ class WorkQueue:
         self.capacity = capacity
         self.timeout = timeout
         self.tasks: set[asyncio.Task] = set()
-        self._slot = asyncio.Semaphore(concurrency)
+        self._slot = asyncio.Semaphore(concurrency) if concurrency else nullcontext()
         self.active = 0
 
     def submit(self, operation):
-        if len(self.tasks) >= self.capacity:
+        if self.capacity and len(self.tasks) >= self.capacity:
             raise HTTPException(429, "查询队列已满，请稍后重试", headers={"Retry-After": "10"})
         deadline = asyncio.get_running_loop().time() + self.timeout
 
