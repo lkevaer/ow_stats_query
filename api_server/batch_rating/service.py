@@ -202,6 +202,14 @@ class BatchRatingService:
         task.add_done_callback(lambda _: self.running.pop(key, None))
         return self.public_job(job)
 
+    def on_result_ready(self, key, callback):
+        self.jobs[key].setdefault("_result_callbacks", []).append(callback)
+
+    @staticmethod
+    def _notify_result_ready(job):
+        for callback in job.pop("_result_callbacks", []):
+            callback()
+
     def public_job(self, job):
         result = {k: v for k, v in job.items() if not k.startswith("_")}
         if job["status"] in {"queued", "running"} and job.get("_core"):
@@ -245,6 +253,7 @@ class BatchRatingService:
             result = deepcopy(await self._await_shared(job["_core"]["task"]))
             result["recognized"] = deepcopy(prepared)
             job.update(status="done", stage="查询完成", progress=100, result=result, updated_at=time.time())
+            self._notify_result_ready(job)
             try:
                 await asyncio.to_thread(self._save_report, job)
                 job["report_persisted"] = True
@@ -258,6 +267,7 @@ class BatchRatingService:
             message = str(exc.detail) if isinstance(exc, HTTPException) else str(exc) if isinstance(exc, (ValueError, QueryFailure)) else "查询暂时失败，请稍后重试"
             job.update(status="error", error=message, updated_at=time.time())
         finally:
+            self._notify_result_ready(job)
             job.pop("_core", None)
 
     async def _await_shared(self, task, *, cancel_unobserved=True):

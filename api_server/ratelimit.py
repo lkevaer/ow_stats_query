@@ -61,6 +61,11 @@ class SlidingWindowLimiter:
                 q.append(now)
             return True, 0.0
 
+    def restart_window(self, key: str) -> None:
+        """Restart an admitted request's cooldown when its work finishes."""
+        with self._lock:
+            self._buckets[key] = deque([self._clock()])
+
     def cleanup(self) -> None:
         now = self._clock()
         cutoff = now - self._window

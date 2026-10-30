@@ -103,13 +103,16 @@ def admit_rating_query(request: Request, *, full_match: bool = False):
             "full_match": SlidingWindowLimiter(1, float(cfg.get("full_match_cooldown_seconds", 60))),
         }
     policy = "full_match" if full_match else "ordinary"
-    allowed, retry = limits[policy].try_with_retry_after(request_owner(request))
+    owner = request_owner(request)
+    allowed, retry = limits[policy].try_with_retry_after(owner)
     if not allowed:
         from .metrics import REGISTRY
         REGISTRY.counter("rate_limit_throttled_total", {"rule": "rating_" + policy, "route": "/api/batch-rating"}).inc()
         seconds = max(1, math.ceil(retry))
         rule = "查询当局名单每分钟只能查询一次" if full_match else "普通查询每10秒最多查询两次"
         raise HTTPException(429, f"{rule}，请在{seconds}秒后重试", headers={"Retry-After": str(seconds)})
+    if full_match:
+        return lambda: limits[policy].restart_window(owner)
 
 
 async def run_ocr(request, operation):

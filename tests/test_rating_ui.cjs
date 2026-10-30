@@ -112,6 +112,37 @@ test('backend retry-after restores match cooldown without replacing its error me
   assert.match(view.element('status').textContent,/37秒/);
 });
 
+test('a fifty-second query starts the full minute only when the result arrives',async()=>{
+  const view=ui(), RealDate=vm.runInContext('Date',view.context);
+  let now=Date.now(),finish;
+  view.context.Date=class extends RealDate{static now(){return now;}};
+  const complete={dataset:{complete:'true'}};
+  view.element('details').querySelectorAll=()=>[complete];
+  view.context.fetch=async(url,options)=>({ok:true,json:async()=>options?.method==='POST'?{success:true,data:{task_id:'slow'}}:
+    await new Promise(resolve=>{finish=()=>resolve({success:true,data:{status:'done',progress:100,result:{mode:'competitive',mode_label:'竞技',players:[player],summary:{requested_players:1,complete_players:1,rated_matches:12}}}});})});
+  const pending=view.context.query('competitive',['Example#1234']);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(view.context.matchCooldownSeconds(),0);
+  assert.equal(complete.disabled,true);
+  assert.equal(view.storage.get('ow_match_query_task'),'slow');
+  now+=50000;finish();await pending;
+  assert.equal(view.context.matchCooldownSeconds(),60);
+  assert.equal(view.storage.has('ow_match_query_task'),false);
+  now+=59000;assert.equal(view.context.matchCooldownSeconds(),1);
+  now+=1000;view.context.refreshMatchQueryButtons();assert.equal(complete.disabled,false);
+});
+
+test('resuming a match query after reload starts cooldown once and old reports cannot extend it',async()=>{
+  const storage=new Map([['ow_batch_rating_task','resume'],['ow_match_query_task','resume']]);
+  const view=ui('',true,storage), RealDate=vm.runInContext('Date',view.context);
+  let now=Date.now();view.context.Date=class extends RealDate{static now(){return now;}};
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(view.context.matchCooldownSeconds(),60);
+  now+=20000;
+  await view.context.poll('resume',true);
+  assert.equal(view.context.matchCooldownSeconds(),40);
+});
+
 test('manual-only page never suggests uploading screenshots after input state updates',()=>{
   const view=ui('',false);
   assert.equal(view.element('status').textContent,'输入战网ID或选择常用ID。');

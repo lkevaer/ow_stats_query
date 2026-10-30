@@ -1,6 +1,7 @@
 """Web submission policy regression tests; all query computation is mocked."""
 import asyncio
 import hashlib
+import threading
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -48,6 +49,61 @@ class RatingLimitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.submit(full=True)).headers['retry-after'], '1')
         self.now += .99
         self.assertEqual((await self.submit(full=True)).status_code, 200)
+
+    async def test_full_minute_starts_after_slow_async_completion_without_polling(self):
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def blocked(*args, **kwargs):
+            entered.set()
+            await release.wait()
+            return {'players': []}
+        self.state.batch_rating.query = AsyncMock(side_effect=blocked)
+        first = await self.client.post('/api/batch-rating/competitive',
+                                      json={'battletags':['Example#1234'],'full_match':True})
+        await entered.wait()
+        self.now += 50
+        self.assertEqual((await self.submit(full=True)).status_code, 429)
+        task = self.state.batch_rating.running[first.json()['data']['task_id']]
+        release.set()
+        await task
+        await asyncio.sleep(0)
+        denied = await self.submit(full=True, mode='leisure')
+        self.assertEqual(denied.status_code, 429)
+        self.assertEqual(denied.headers['retry-after'], '60')
+        self.now += 59
+        self.assertEqual((await self.submit(full=True)).headers['retry-after'], '1')
+        self.now += 1
+        self.assertEqual((await self.submit(full=True)).status_code, 200)
+
+    async def test_full_query_longer_than_original_window_still_gets_sixty_seconds_afterwards(self):
+        async def slow(*args, **kwargs):
+            self.now += 75
+            return {'players': []}
+        self.state.batch_rating.query = AsyncMock(side_effect=slow)
+        self.assertEqual((await self.submit(full=True)).status_code, 200)
+        self.assertEqual((await self.submit(full=True)).headers['retry-after'], '60')
+
+    async def test_cooldown_is_active_as_soon_as_results_are_visible_before_disk_save(self):
+        entered, release = threading.Event(), threading.Event()
+        async def slow(*args, **kwargs):
+            self.now += 75
+            return {'players': []}
+        def save(job):
+            entered.set()
+            release.wait(5)
+        self.state.batch_rating.query = AsyncMock(side_effect=slow)
+        with patch.object(self.state.batch_rating, '_save_report', side_effect=save):
+            first = await self.client.post('/api/batch-rating/competitive',
+                                          json={'battletags':['Example#1234'],'full_match':True})
+            try:
+                self.assertTrue(await asyncio.to_thread(entered.wait, 3))
+                status = await self.client.get('/api/batch-rating/tasks/'+first.json()['data']['task_id'])
+                self.assertEqual(status.json()['data']['status'], 'done')
+                denied = await self.submit(full=True, mode='leisure')
+                self.assertEqual(denied.status_code, 429)
+                self.assertEqual(denied.headers['retry-after'], '60')
+            finally:
+                release.set()
+                await self.state.batch_rating.running[first.json()['data']['task_id']]
 
     async def test_ordinary_and_full_match_allowances_are_independent(self):
         self.assertEqual((await self.submit()).status_code, 200)

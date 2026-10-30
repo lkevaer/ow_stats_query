@@ -46,10 +46,13 @@ async def _query(mode, body, response, state, request):
             prepared = await worker.prepare(body.battletags, body.image_base64, full_match=body.full_match)
         owner = request_owner(request)
         job = worker.reuse(mode, prepared, owner)
-        admit_rating_query(request, full_match=body.full_match)
+        finish_cooldown = admit_rating_query(request, full_match=body.full_match)
         if job is None:
             snapshots = await worker.fresh_snapshots(mode, prepared["battletags"])
             job = worker.start(mode, prepared, owner=owner, snapshots=snapshots)
+        if finish_cooldown is not None:
+            # Start cooldown as soon as the result is visible, before disk persistence.
+            worker.on_result_ready(job["task_id"], finish_cooldown)
         if body.wait:
             import asyncio
             await asyncio.shield(worker.running[job["task_id"]])

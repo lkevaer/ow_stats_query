@@ -181,7 +181,7 @@ function refreshMatchQueryButtons(){
   $('details').querySelectorAll?.('.query-match').forEach(button=>{
     button.disabled=querying||button.dataset.complete!=='true'||seconds>0;
     button.textContent=seconds>0?'查询当局 · '+seconds+'秒':'查询当局';
-    button.title=seconds>0?'查询当局名单每分钟一次，还需等待'+seconds+'秒':'查询当局所有人的最近12场评分';
+    button.title=seconds>0?'数据返回后冷却一分钟，还需等待'+seconds+'秒':'查询当局所有人的最近12场评分，数据返回后冷却一分钟';
   });
   if(seconds>0&&matchCooldownTimer===null)matchCooldownTimer=setTimeout(()=>{matchCooldownTimer=null;refreshMatchQueryButtons();},1000);
 }
@@ -216,6 +216,9 @@ async function poll(id, fromLink=false) {
   polling=true;
   while (polling) {
     const job=await api('/api/batch-rating/tasks/'+encodeURIComponent(id));
+    if((job.status==='done'||job.status==='error')&&localStorage.getItem('ow_match_query_task')===id){
+      setMatchQueryCooldown(60);localStorage.removeItem('ow_match_query_task');
+    }
     $('progress').value=job.progress; status((job.status==='queued'&&job.queue?'排队中 · 当前运行 '+job.queue.active+' 批，等待 '+job.queue.queued+' 批':job.stage)+' · '+job.completed_players+'/'+job.total_players+' 位玩家');
     if (job.status==='done') { polling=false;localStorage.removeItem('ow_batch_rating_task');render(job.result);const empty=emptyReportNotice(job.result);status(empty||(job.report_persisted===false?'查询已完成，报告暂未保存到磁盘，请现在导出；重启后链接可能不可用。':fromLink?'已载入本次报告，可展开查看每场详情（最多保留24小时）。':'查询完成。'),Boolean(empty));return; }
     if (job.status==='error') { localStorage.removeItem('ow_batch_rating_task');throw new Error(job.error||'查询失败'); }
@@ -235,7 +238,7 @@ async function query(mode, matchTags=null) {
   busy(true);$('progress').classList.remove('hidden');$('progress').value=0;status('正在创建'+(mode==='leisure'?'休闲':'竞技')+'查询…');
   try {
     const job=await api('/api/batch-rating/'+mode,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({battletags:tags,...(matchTags!==null?{full_match:true}:{})})});
-    if(matchTags!==null)setMatchQueryCooldown(60);
+    if(matchTags!==null)localStorage.setItem('ow_match_query_task',job.task_id);
     localStorage.setItem('ow_batch_rating_task',job.task_id);
     if(/^[a-f0-9]{32}$/.test(job.task_id))globalThis.history?.replaceState(null,'','/?task='+job.task_id);
     await poll(job.task_id);
